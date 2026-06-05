@@ -1,0 +1,20 @@
+[alias]
+c = "check --workspace --all-targets --all-features"
+b = "build --workspace --all-targets --all-features"
+br = "build --workspace --release"
+r = "run -p sandbox"
+t = "test --workspace --all-targets --all-features"
+cl = "clippy --workspace --all-targets --all-features -- -D warnings"
+f = "fmt --all"
+docx = "doc --workspace --all-features --no-deps"
+
+[build]
+# jobs = 8
+
+[env]
+RUST_BACKTRACE = "1"
+RUST_LOG = "info"
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

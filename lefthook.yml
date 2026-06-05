@@ -1,0 +1,13 @@
+pre-commit:
+  parallel: false
+  commands:
+    fmt:
+      run: cargo fmt --all -- --check
+    check:
+      run: cargo check --workspace --all-targets --all-features
+
+pre-push:
+  parallel: false
+  commands:
+    ci:
+      run: just ci

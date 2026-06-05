@@ -1,0 +1,52 @@
+msrv = "1.85"
+
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 7
+too-many-lines-threshold = 120
+type-complexity-threshold = 250
+
+large-error-threshold = 128
+stack-size-threshold = 262144
+enum-variant-size-threshold = 200
+trivial-copy-size-limit = 16
+pass-by-value-size-limit = 256
+
+max-fn-params-bools = 2
+max-struct-bools = 3
+
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = false
+allow-indexing-slicing-in-tests = true
+
+avoid-breaking-exported-api = false
+warn-on-all-wildcard-imports = true
+
+doc-valid-idents = [
+    "API",
+    "CPU",
+    "GPU",
+    "Vulkan",
+    "OpenGL",
+    "GLSL",
+    "SPIR-V",
+    "RAII",
+    "FFI",
+    "ECS",
+    "AABB",
+    "sRGB",
+    "HDR",
+    "MSAA",
+]
+
+disallowed-methods = [
+    { path = "std::mem::forget", reason = "Leaks resources; use ManuallyDrop or document the ownership escape explicitly." },
+    { path = "std::process::exit", reason = "Bypasses destructors, logging flushes, GPU cleanup, and profiler shutdown." },
+]
+
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "Prefer parking_lot::Mutex unless poisoning semantics are required." },
+    { path = "std::sync::RwLock", reason = "Prefer parking_lot::RwLock unless poisoning semantics are required." },
+]

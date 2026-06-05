@@ -1,0 +1,27 @@
+/target/
+
+# Rust profiling/fuzzing noise
+*.profraw
+*.profdata
+/coverage/
+/tarpaulin-report.html
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Build artifacts
+*.pdb
+*.ilk
+*.exp
+*.lib
+
+# Shader artifacts; remove this if you commit compiled SPIR-V
+*.spv
+
+# Logs
+*.log

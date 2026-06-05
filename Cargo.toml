@@ -1,0 +1,127 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/engine-core",
+    "crates/engine-renderer-vulkan",
+    "crates/sandbox",
+]
+default-members = ["crates/sandbox"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+glam = "0.30"
+smallvec = "1"
+parking_lot = "0.12"
+
+[workspace.lints.rust]
+# Rust 2024 / unsafe hygiene
+unsafe_op_in_unsafe_fn = "deny"
+unused_unsafe = "deny"
+
+# Code health
+future_incompatible = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+
+# API cleanliness
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+# Footguns
+let_underscore_drop = "deny"
+let_underscore_lock = "deny"
+unused_must_use = "deny"
+macro_use_extern_crate = "deny"
+meta_variable_misuse = "deny"
+non_ascii_idents = "deny"
+noop_method_call = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+bare_urls = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+multiple_crate_versions = "allow"
+
+# Hard errors
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+panic_in_result_fn = "deny"
+
+# Engine-relevant warnings
+expect_used = "warn"
+panic = "warn"
+indexing_slicing = "warn"
+as_conversions = "warn"
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+wildcard_imports = "warn"
+enum_glob_use = "warn"
+large_enum_variant = "warn"
+large_stack_arrays = "warn"
+large_stack_frames = "warn"
+multiple_unsafe_ops_per_block = "warn"
+mem_forget = "warn"
+rc_mutex = "warn"
+await_holding_lock = "warn"
+
+# Pedantic lints that are usually too noisy for engine code
+module_name_repetitions = "allow"
+similar_names = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+too_many_lines = "allow"
+
+[profile.dev]
+debug = 2
+opt-level = 0
+incremental = true
+overflow-checks = true
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+debug = "line-tables-only"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+overflow-checks = false
+incremental = false
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+lto = false
+panic = "unwind"
+
+[profile.dist]
+inherits = "release"
+strip = "symbols"
+debug = false
