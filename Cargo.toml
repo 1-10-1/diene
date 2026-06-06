@@ -15,17 +15,21 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+engine-core = { path = "crates/engine-core" }
+engine-renderer-vulkan = { path = "crates/engine-renderer-vulkan" }
+common = { path = "crates/common" }
+
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = "0.3"
-bytemuck = { version = "1", features = ["derive"] }
-glam = "0.30"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
+glam = "0.33"
 smallvec = "1"
 parking_lot = "0.12"
+tokio = { version = "1.52.3", features = ["full"] }
 
 [workspace.lints.rust]
-# Rust 2024 / unsafe hygiene
 unsafe_op_in_unsafe_fn = "deny"
 unused_unsafe = "deny"
 
@@ -59,6 +63,8 @@ nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
 
 multiple_crate_versions = "allow"
+
+missing_const_for_fn = "allow"
 
 # Hard errors
 dbg_macro = "deny"

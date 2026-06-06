@@ -1,5 +1,5 @@
 [package]
-name = "engine-core"
+name = "common"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
@@ -10,13 +10,9 @@ publish = { workspace = true }
 workspace = true
 
 [dependencies]
-engine-renderer-vulkan = { workspace = true }
-common = { workspace = true }
-
-tokio = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-glam = { workspace = true }
-smallvec = { workspace = true }
-parking_lot = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
 

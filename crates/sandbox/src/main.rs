@@ -1,5 +1,7 @@
-//! Manual executable for testing the engine during development.
+//! Sandbox executable for testing the engine during development.
 
-fn main() {
-    std::println!("Hello!");
+use engine_core::app::Application;
+
+const fn main() {
+    let app = Application::builder().build();
 }
