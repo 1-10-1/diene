@@ -31,10 +31,14 @@ impl VulkanRenderer {
     }
 
     /// Renders into the attached window.
-    pub fn render() {}
+    pub fn render(&mut self) {
+        println!("Hello!");
+    }
 
     /// Updates the renderer state.
     /// Should be called for each game tick, and before [`VulkanRenderer::render()`]
     /// is called.
-    pub fn update() {}
+    pub fn update(&mut self) {
+        println!("Nice place!");
+    }
 }

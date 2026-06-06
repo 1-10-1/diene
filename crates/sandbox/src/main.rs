@@ -2,6 +2,10 @@
 
 use engine_core::app::Application;
 
-const fn main() {
-    let app = Application::builder().build();
+fn main() {
+    let mut app = Application::builder().with_name("Diene Sandbox").build();
+
+    loop {
+        app.tick();
+    }
 }

@@ -28,11 +28,13 @@ impl ApplicationBuilder {
 
     /// Constructs an [`Application`] from the builder state.
     pub fn build(self) -> Application {
+        let renderer = VulkanRenderer::builder().with_vsync(false).build();
+
         Application {
             name: self
                 .name
                 .unwrap_or_else(|| "Untitled Application".to_owned()),
-            renderer: VulkanRenderer::builder().build(),
+            renderer,
         }
     }
 }
@@ -46,5 +48,11 @@ impl Application {
     /// Returns the application name.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Advances application logic and rendering. Should be called every frame.
+    pub fn tick(&mut self) {
+        self.renderer.update();
+        self.renderer.render();
     }
 }
