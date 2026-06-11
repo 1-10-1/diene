@@ -9,11 +9,10 @@ f = "fmt --all"
 docx = "doc --workspace --all-features --no-deps"
 
 [build]
-# jobs = 8
+jobs = 8
 
 [env]
-RUST_BACKTRACE = "1"
-RUST_LOG = "info"
+RUST_LOG = "trace"
 
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"

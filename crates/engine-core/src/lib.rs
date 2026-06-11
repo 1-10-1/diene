@@ -1,6 +1,6 @@
-//! Core engine types, utilities, math, handles, and shared abstractions.
+//! Core engine orchestration.
 
 #![forbid(unsafe_code)]
 
-/// The core application code
+/// Application lifecycle and frame advancement.
 pub mod app;

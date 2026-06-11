@@ -1,32 +1,29 @@
-//! Application core.
+//! Applicagion lifecycle and frame coordination.
 
 use engine_renderer_vulkan::renderer::{self, VulkanRenderer};
 
-/// FIXME Problem. Logger needs to be shared. But that is tricky.
-/// Should it be placed in the engine code? Renderer code? Sandbox? Shared?
-
-/// Application data.
+/// Owns the high-level state for a running application.
 #[derive(Debug)]
 pub struct Application {
     name: String,
     renderer: renderer::VulkanRenderer,
 }
 
-/// Builder for an [`Application`].
+/// Configures an [`Application`].
 #[derive(Debug, Default)]
 pub struct ApplicationBuilder {
     name: Option<String>,
 }
 
 impl ApplicationBuilder {
-    /// Sets the application name.
+    /// Sets the human-readable application name.
     #[must_use]
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
-    /// Constructs an [`Application`] from the builder state.
+    /// Builds the application.
     pub fn build(self) -> Application {
         let renderer = VulkanRenderer::builder().with_vsync(false).build();
 
@@ -40,17 +37,17 @@ impl ApplicationBuilder {
 }
 
 impl Application {
-    /// Creates a new [`ApplicationBuilder`].
+    /// Creates a builder for configuring an [`Application`].
     pub fn builder() -> ApplicationBuilder {
         ApplicationBuilder::default()
     }
 
-    /// Returns the application name.
+    /// Returns the human-readable application name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// Advances application logic and rendering. Should be called every frame.
+    /// Advances the application by one frame.
     pub fn tick(&mut self) {
         self.renderer.update();
         self.renderer.render();

@@ -14,9 +14,14 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-/// Keeps the async file logger alive.
+/// Re-exports the engine's logging macros.
+pub mod macros {
+    pub use tracing::{debug, error, info, trace, warn};
+}
+
+/// Keeps the non-blocking file logger alive.
 ///
-/// Drop this only when the program is shutting down.
+/// Hold this guard until shutdown so file logs continue to be flushed.
 #[derive(Debug)]
 pub struct LoggerGuard {
     _file_guard: WorkerGuard,
@@ -42,12 +47,7 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,
 {
-    fn format_event(
-        &self,
-        ctx: &FmtContext<'_, S, N>,
-        mut writer: Writer<'_>,
-        event: &Event<'_>,
-    ) -> std_fmt::Result {
+    fn format_event(&self, ctx: &FmtContext<'_, S, N>, mut writer: Writer<'_>, event: &Event<'_>) -> std_fmt::Result {
         let metadata = event.metadata();
 
         write_level(&mut writer, *metadata.level())?;
@@ -97,15 +97,15 @@ fn write_level(writer: &mut Writer<'_>, level: Level) -> std_fmt::Result {
     }
 }
 
-/// Initializes the logger.
+/// Initializes engine logging.
+///
+/// Keep the returned [`LoggerGuard`] alive until shutdown.
 pub fn init() -> Result<LoggerGuard> {
     let log_path = std::env::current_dir()
         .context("failed to get current working directory")?
-        .join("minecraft.log");
+        .join("logs/diene.log");
 
-    let log_file = File::create(&log_path).with_context(|| {
-        format!("failed to create log file at {}", log_path.display())
-    })?;
+    let log_file = File::create(&log_path).with_context(|| format!("failed to create log file at {}", log_path.display()))?;
 
     let formatter = EngineFormatter::new();
 
@@ -127,8 +127,7 @@ pub fn init() -> Result<LoggerGuard> {
         "info"
     };
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_level));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
 
     tracing_subscriber::registry()
         .with(filter)

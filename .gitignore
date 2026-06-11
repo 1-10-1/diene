@@ -6,6 +6,8 @@
 /coverage/
 /tarpaulin-report.html
 
+/logs/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

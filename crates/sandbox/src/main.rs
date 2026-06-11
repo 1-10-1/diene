@@ -1,11 +1,13 @@
-//! Sandbox executable for testing the engine during development.
+//! Development sandbox for running and testing the engine.
 
 use engine_core::app::Application;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
+    let _logger_guard = common::logging::init()?;
+
     let mut app = Application::builder().with_name("Diene Sandbox").build();
 
-    loop {
-        app.tick();
-    }
+    app.tick();
+
+    Ok(())
 }
