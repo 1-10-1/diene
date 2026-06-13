@@ -2,5 +2,5 @@
 
 #![forbid(unsafe_code)]
 
-/// Application lifecycle and frame advancement.
+/// Application host lifecycle and frame advancement.
 pub mod app;

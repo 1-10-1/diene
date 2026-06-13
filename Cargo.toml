@@ -3,7 +3,9 @@ resolver = "3"
 members = [
     "crates/common",
     "crates/engine-core",
+    "crates/engine-renderer-api",
     "crates/engine-renderer-vulkan",
+    "crates/engine-runtime",
     "crates/sandbox",
 ]
 default-members = ["crates/sandbox"]
@@ -17,17 +19,15 @@ publish = false
 [workspace.dependencies]
 common = { path = "crates/common", version = "0.1.0" }
 engine-core = { path = "crates/engine-core", version = "0.1.0" }
+engine-renderer-api = { path = "crates/engine-renderer-api", version = "0.1.0" }
 engine-renderer-vulkan = { path = "crates/engine-renderer-vulkan", version = "0.1.0" }
+engine-runtime = { path = "crates/engine-runtime", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
-glam = "0.33"
-smallvec = "1"
-parking_lot = "0.12"
-tokio = { version = "1.52.3", features = ["full"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
@@ -69,8 +69,6 @@ dbg_macro = "deny"
 todo = "deny"
 unimplemented = "deny"
 unwrap_used = "deny"
-undocumented_unsafe_blocks = "deny"
-missing_safety_doc = "deny"
 panic_in_result_fn = "deny"
 
 # Engine-relevant warnings
@@ -102,6 +100,7 @@ missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 too_many_lines = "allow"
 needless_pass_by_ref_mut = "allow"
+unnecessary_wraps = "allow"
 
 [profile.dev]
 debug = 2

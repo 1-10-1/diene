@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 
 /// A pausable stopwatch for measuring elapsed time.
 #[derive(Debug)]
-
 pub struct Stopwatch {
     state: State,
 }
@@ -10,13 +9,8 @@ pub struct Stopwatch {
 #[derive(Debug)]
 enum State {
     Stopped,
-    Running {
-        start_time: Instant,
-        accumulated: Duration,
-    },
-    Paused {
-        accumulated: Duration,
-    },
+    Running { start_time: Instant, accumulated: Duration },
+    Paused { accumulated: Duration },
 }
 
 impl Default for Stopwatch {
@@ -37,10 +31,7 @@ impl Stopwatch {
     pub fn start(&mut self) {
         match self.state {
             State::Stopped => {
-                self.state = State::Running {
-                    start_time: Instant::now(),
-                    accumulated: Duration::new(0, 0),
-                };
+                self.state = State::Running { start_time: Instant::now(), accumulated: Duration::new(0, 0) };
             }
             State::Paused { accumulated } => {
                 self.state = State::Running { start_time: Instant::now(), accumulated };

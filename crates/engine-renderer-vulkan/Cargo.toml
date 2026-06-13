@@ -9,15 +9,10 @@ publish = { workspace = true }
 workspace = true
 
 [dependencies]
+engine-renderer-api = { workspace = true }
 common = { workspace = true }
 
 thiserror = { workspace = true }
-anyhow = { workspace = true }
-glam = { workspace = true }
-smallvec = { workspace = true }
 
-ash = "0.38"
-ash-window = "0.13"
-raw-window-handle = "0.6"
-winit = "0.30"
-bytemuck = { version = "1", features = ["derive"] }
+ash = "0.38.0"
+

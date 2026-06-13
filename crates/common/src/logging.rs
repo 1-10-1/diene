@@ -1,4 +1,8 @@
-use std::{fmt as std_fmt, fs::File, time::Instant};
+use std::{
+    fmt as std_fmt,
+    fs::{self, File},
+    time::Instant,
+};
 
 use anyhow::{Context, Result};
 use tracing::{Event, Level, Subscriber};
@@ -35,10 +39,7 @@ struct EngineFormatter {
 
 impl EngineFormatter {
     fn new() -> Self {
-        Self {
-            debug: cfg!(debug_assertions),
-            started_at: Instant::now(),
-        }
+        Self { debug: cfg!(debug_assertions), started_at: Instant::now() }
     }
 }
 
@@ -57,11 +58,9 @@ where
 
         if self.debug {
             let file = metadata.file().unwrap_or("<unknown>");
-            let line = metadata
-                .line()
-                .map_or_else(|| "?".to_owned(), |line| line.to_string());
+            let line = metadata.line().map_or_else(|| "?".to_owned(), |line| line.to_string());
 
-            write!(writer, " [{file}:{line} {}]", metadata.target())?;
+            write!(writer, " {file}:{line} {}", metadata.target())?;
         }
 
         writeln!(writer)?;
@@ -69,6 +68,7 @@ where
 
         ctx.field_format().format_fields(writer.by_ref(), event)?;
 
+        writeln!(writer)?;
         writeln!(writer)
     }
 }
@@ -101,25 +101,21 @@ fn write_level(writer: &mut Writer<'_>, level: Level) -> std_fmt::Result {
 ///
 /// Keep the returned [`LoggerGuard`] alive until shutdown.
 pub fn init() -> Result<LoggerGuard> {
-    let log_path = std::env::current_dir()
-        .context("failed to get current working directory")?
-        .join("logs/diene.log");
+    let log_dir = std::env::current_dir().context("failed to get current working directory")?.join("logs");
+
+    fs::create_dir_all(&log_dir).with_context(|| format!("failed to create log directory at {}", log_dir.display()))?;
+
+    let log_path = log_dir.join("diene.log");
 
     let log_file = File::create(&log_path).with_context(|| format!("failed to create log file at {}", log_path.display()))?;
 
     let formatter = EngineFormatter::new();
 
-    let stdout_layer = fmt::layer()
-        .with_writer(std::io::stdout)
-        .with_ansi(true)
-        .event_format(formatter.clone());
+    let stdout_layer = fmt::layer().with_writer(std::io::stdout).with_ansi(true).event_format(formatter.clone());
 
     let (file_writer, file_guard) = tracing_appender::non_blocking(log_file);
 
-    let file_layer = fmt::layer()
-        .with_writer(file_writer)
-        .with_ansi(false)
-        .event_format(formatter);
+    let file_layer = fmt::layer().with_writer(file_writer).with_ansi(false).event_format(formatter);
 
     let default_level = if cfg!(debug_assertions) {
         "trace"
