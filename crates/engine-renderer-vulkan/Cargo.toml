@@ -13,6 +13,6 @@ engine-renderer-api = { workspace = true }
 common = { workspace = true }
 
 thiserror = { workspace = true }
-
-ash = "0.38.0"
-
+ash = { workspace = true }
+ash-window = { workspace = true }
+raw-window-handle = { workspace = true }

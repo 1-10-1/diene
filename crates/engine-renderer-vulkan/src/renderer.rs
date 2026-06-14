@@ -1,7 +1,6 @@
 mod backend;
 
-use common::logging::macros::*;
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory};
+use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererFactory};
 use thiserror::Error;
 
 use self::backend::{VulkanBackend, VulkanBackendError};
@@ -16,12 +15,6 @@ pub enum VulkanRendererError {
     /// Window drawable size is invalid for presentation.
     #[error("window drawable size must be non-zero: {0:?}")]
     InvalidWindowSize(RenderExtent),
-}
-
-impl From<VulkanRendererError> for RendererError {
-    fn from(error: VulkanRendererError) -> Self {
-        Self::new(error)
-    }
 }
 
 /// Vulkan-backed renderer state.
@@ -45,13 +38,11 @@ impl VulkanRendererBuilder {
     pub fn build(self, window: &dyn RenderWindow) -> Result<VulkanRenderer, VulkanRendererError> {
         let extent = window.size();
 
-        debug!("building vulkan renderer frontend");
-
         if extent.is_empty() {
             return Err(VulkanRendererError::InvalidWindowSize(extent));
         }
 
-        let backend = VulkanBackend::new()?;
+        let backend = VulkanBackend::new(window)?;
 
         VulkanRenderer::new(self.vsync, backend)
     }
@@ -71,28 +62,30 @@ impl VulkanRenderer {
     }
 
     fn new(vsync: bool, backend: VulkanBackend) -> Result<Self, VulkanRendererError> {
-        debug!("initializing vulkan renderer frontend state");
-
         Ok(Self { vsync, backend })
     }
 }
 
 impl RendererFactory for VulkanRendererBuilder {
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer, RendererError> {
+    type Error = VulkanRendererError;
+
+    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
         Ok(Box::new((*self).build(window)?))
     }
 }
 
 impl Renderer for VulkanRenderer {
-    fn prepare_frame(&mut self) -> Result<(), RendererError> {
+    type Error = VulkanRendererError;
+
+    fn prepare_frame(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn render(&mut self) -> Result<(), RendererError> {
+    fn render(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn resize(&mut self, _extent: RenderExtent) -> Result<(), RendererError> {
+    fn resize(&mut self, _extent: RenderExtent) -> Result<(), Self::Error> {
         Ok(())
     }
 }

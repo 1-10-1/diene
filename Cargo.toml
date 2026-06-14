@@ -24,10 +24,14 @@ engine-renderer-vulkan = { path = "crates/engine-renderer-vulkan", version = "0.
 engine-runtime = { path = "crates/engine-runtime", version = "0.1.0" }
 
 anyhow = "1"
+ash = "0.38.0"
+ash-window = "0.13.0"
+raw-window-handle = "0.6"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
+winit = "0.30"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

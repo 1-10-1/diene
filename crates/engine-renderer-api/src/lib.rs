@@ -2,20 +2,17 @@
 
 #![forbid(unsafe_code)]
 
-use std::{
-    error::Error,
-    fmt::{self, Debug, Display},
-};
+use std::{error::Error, fmt::Debug};
 
 pub use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle};
 
 /// Drawable size in physical pixels.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RenderExtent {
-    /// Drawable width in physical pixels.
+    /// Drawable width in pixels.
     pub width: u32,
 
-    /// Drawable height in physical pixels.
+    /// Drawable height in pixels.
     pub height: u32,
 }
 
@@ -39,47 +36,27 @@ pub trait RenderWindow: Debug + HasDisplayHandle + HasWindowHandle {
 
 /// Renderer backend operations driven by the application loop.
 pub trait Renderer: Debug {
+    /// Error type returned by renderer operations.
+    type Error: Error + Send + Sync + 'static;
+
     /// Prepares renderer-owned state for the next frame.
-    fn prepare_frame(&mut self) -> Result<(), RendererError>;
+    fn prepare_frame(&mut self) -> Result<(), Self::Error>;
 
     /// Renders one frame.
-    fn render(&mut self) -> Result<(), RendererError>;
+    fn render(&mut self) -> Result<(), Self::Error>;
 
     /// Resizes renderer-owned swapchain or framebuffer resources.
-    fn resize(&mut self, extent: RenderExtent) -> Result<(), RendererError>;
+    fn resize(&mut self, extent: RenderExtent) -> Result<(), Self::Error>;
 }
 
-/// Type-erased renderer backend error.
-#[derive(Debug)]
-pub struct RendererError {
-    source: Box<dyn Error + Send + Sync>,
-}
-
-impl RendererError {
-    /// Wraps a backend-specific renderer error.
-    #[must_use]
-    pub fn new(source: impl Error + Send + Sync + 'static) -> Self {
-        Self { source: Box::new(source) }
-    }
-}
-
-impl Display for RendererError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.source, formatter)
-    }
-}
-
-impl Error for RendererError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&*self.source)
-    }
-}
-
-/// Owned renderer trait object.
-pub type BoxedRenderer = Box<dyn Renderer>;
+/// Owned renderer trait object with a fixed error type.
+pub type BoxedRenderer<E> = Box<dyn Renderer<Error = E>>;
 
 /// Creates renderer instances once a native window exists.
 pub trait RendererFactory: Debug {
+    /// Error type returned by renderer creation and operations.
+    type Error: Error + Send + Sync + 'static;
+
     /// Creates a renderer for the supplied native window.
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer, RendererError>;
+    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error>;
 }

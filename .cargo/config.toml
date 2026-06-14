@@ -12,7 +12,7 @@ docx = "doc --workspace --all-features --no-deps"
 jobs = 8
 
 [env]
-RUST_LOG = "warn,common=trace,engine_core=trace,engine_renderer_vulkan=trace,sandbox=trace"
+RUST_LOG = "warn,common=trace,engine_runtime=trace,engine_core=trace,engine_renderer_vulkan=trace,sandbox=trace"
 
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"

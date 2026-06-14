@@ -9,11 +9,11 @@ pub fn run() -> anyhow::Result<()> {
 
     let app_name = "Diene Sandbox";
 
-    let mut app = Application::builder().with_name(app_name).build()?;
+    let app = Application::builder().with_name(app_name).build()?;
 
     app.run()?;
 
-    info!("[{}] sandbox application exited", app.name());
+    info!("[{}] sandbox application exited", app_name);
 
     Ok(())
 }

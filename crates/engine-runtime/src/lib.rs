@@ -4,8 +4,8 @@
 
 use common::logging::macros::{debug, info};
 use engine_core::app::{ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError};
-use engine_renderer_api::{BoxedRenderer, RenderWindow, RendererError, RendererFactory};
-use engine_renderer_vulkan::renderer::VulkanRendererBuilder;
+use engine_renderer_api::{BoxedRenderer, RenderWindow, RendererFactory};
+use engine_renderer_vulkan::renderer::{VulkanRendererBuilder, VulkanRendererError};
 use thiserror::Error;
 
 /// Errors returned by the public application runtime.
@@ -14,7 +14,7 @@ use thiserror::Error;
 pub enum ApplicationError {
     /// Renderer backend operation failed.
     #[error("renderer failed: {0}")]
-    Renderer(#[from] RendererError),
+    Renderer(#[source] VulkanRendererError),
 
     /// Window or event loop operation failed.
     #[error("window failed: {0}")]
@@ -25,8 +25,8 @@ pub enum ApplicationError {
     Build(#[from] ApplicationHostBuildError),
 }
 
-impl From<ApplicationHostError> for ApplicationError {
-    fn from(error: ApplicationHostError) -> Self {
+impl From<ApplicationHostError<VulkanRendererError>> for ApplicationError {
+    fn from(error: ApplicationHostError<VulkanRendererError>) -> Self {
         match error {
             ApplicationHostError::Renderer(error) => Self::Renderer(error),
             ApplicationHostError::Window(error) => Self::Window(error),
@@ -87,7 +87,7 @@ impl ApplicationBuilder {
 
     /// Builds the application.
     pub fn build(self) -> Result<Application, ApplicationError> {
-        debug!("building runtime application with backend {:?} and vsync {}", self.renderer_backend, self.vsync);
+        debug!("building runtime application with backend {:?}", self.renderer_backend);
 
         let selector = RendererBackendSelector { renderer_backend: self.renderer_backend, vsync: self.vsync };
 
@@ -113,7 +113,7 @@ impl Application {
     }
 
     /// Runs the application until the event loop exits.
-    pub fn run(&mut self) -> Result<(), ApplicationError> {
+    pub fn run(self) -> Result<(), ApplicationError> {
         self.host.run().map_err(Into::into)
     }
 }
@@ -125,22 +125,27 @@ struct RendererBackendSelector {
 }
 
 impl RendererFactory for RendererBackendSelector {
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer, RendererError> {
+    type Error = VulkanRendererError;
+
+    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
         match self.renderer_backend {
-            RendererBackend::Auto => {
-                info!("selected renderer backend vulkan with auto policy");
-                create_vulkan_renderer(window, self.vsync)
-            }
-            RendererBackend::Vulkan => {
-                info!("selected renderer backend vulkan with forced policy");
+            RendererBackend::Auto | RendererBackend::Vulkan => {
+                info!(
+                    "selected renderer backend vulkan with {} policy",
+                    if matches!(self.renderer_backend, RendererBackend::Auto) {
+                        "auto"
+                    } else {
+                        "forced"
+                    }
+                );
                 create_vulkan_renderer(window, self.vsync)
             }
         }
     }
 }
 
-fn create_vulkan_renderer(window: &dyn RenderWindow, vsync: bool) -> Result<BoxedRenderer, RendererError> {
-    debug!("creating vulkan renderer with vsync {} and extent {:?}", vsync, window.size());
+fn create_vulkan_renderer(window: &dyn RenderWindow, vsync: bool) -> Result<BoxedRenderer<VulkanRendererError>, VulkanRendererError> {
+    debug!("creating vulkan renderer");
 
     let renderer = VulkanRendererBuilder::default().with_vsync(vsync).build(window)?;
 

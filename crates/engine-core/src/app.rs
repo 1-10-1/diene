@@ -1,7 +1,12 @@
 //! Application lifecycle and frame coordination.
 
-use common::logging::macros::{debug, error, info};
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RendererError, RendererFactory};
+use std::error::Error as StdError;
+
+use common::{
+    logging::macros::{debug, error, info},
+    timer::Stopwatch,
+};
+use engine_renderer_api::{BoxedRenderer, RenderExtent, RendererFactory};
 use thiserror::Error;
 use winit::{
     application::ApplicationHandler,
@@ -17,10 +22,13 @@ pub use self::windowing::WindowError;
 
 /// Errors returned by application host lifecycle operations.
 #[derive(Debug, Error)]
-pub enum ApplicationHostError {
+pub enum ApplicationHostError<E>
+where
+    E: StdError + Send + Sync + 'static,
+{
     /// Renderer operation failed.
     #[error("renderer failed: {0}")]
-    Renderer(#[from] RendererError),
+    Renderer(#[source] E),
 
     /// Window or event loop operation failed.
     #[error("window failed: {0}")]
@@ -48,9 +56,12 @@ where
 {
     name: String,
     renderer_factory: F,
-    renderer: Option<BoxedRenderer>,
+    renderer: Option<BoxedRenderer<F::Error>>,
     window: Option<Window>,
-    error: Option<ApplicationHostError>,
+    error: Option<ApplicationHostError<F::Error>>,
+
+    #[allow(dead_code)]
+    stopwatch: common::timer::Stopwatch,
 }
 
 /// Configures an [`ApplicationHost`].
@@ -75,7 +86,7 @@ where
     }
 
     /// Builds the application host.
-    pub fn build(self) -> Result<ApplicationHost<F>, ApplicationHostError> {
+    pub fn build(self) -> Result<ApplicationHost<F>, ApplicationHostError<F::Error>> {
         let name = self.name.unwrap_or_else(|| "Untitled Application".to_owned());
 
         if name.trim().is_empty() {
@@ -84,7 +95,16 @@ where
 
         debug!("[{}] building application host", name);
 
-        Ok(ApplicationHost { name, renderer_factory: self.renderer_factory, renderer: None, window: None, error: None })
+        let timer = Stopwatch::new();
+
+        Ok(ApplicationHost {
+            name,
+            renderer_factory: self.renderer_factory,
+            renderer: None,
+            window: None,
+            error: None,
+            stopwatch: timer,
+        })
     }
 }
 
@@ -103,24 +123,24 @@ where
     }
 
     /// Runs the application until the event loop exits.
-    pub fn run(&mut self) -> Result<(), ApplicationHostError> {
-        info!("[{}] starting application event loop", self.name);
+    pub fn run(mut self) -> Result<(), ApplicationHostError<F::Error>> {
+        info!("[{}] running application", self.name);
 
         let event_loop = EventLoop::new().map_err(WindowError::from)?;
 
-        event_loop.run_app(self).map_err(WindowError::from)?;
+        event_loop.run_app(&mut self).map_err(WindowError::from)?;
 
         if let Some(error) = self.error.take() {
             error!("[{}] application event loop exited with error: {}", self.name, error);
             return Err(error);
         }
 
-        info!("[{}] application event loop exited cleanly", self.name);
+        info!("[{}] application event loop exited gracefully", self.name);
 
         Ok(())
     }
 
-    fn fail(&mut self, event_loop: &ActiveEventLoop, error: ApplicationHostError) {
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: ApplicationHostError<F::Error>) {
         self.error = Some(error);
         event_loop.exit();
     }
@@ -130,6 +150,11 @@ where
     }
 
     fn render_frame(&mut self, event_loop: &ActiveEventLoop) {
+        // WARN: This is only done for debug purposes. Be sure to remove it later!
+        if self.stopwatch.is_stopped() {
+            self.stopwatch.start();
+        }
+
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
@@ -141,6 +166,13 @@ where
 
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+
+        let elapsed = self.stopwatch.elapsed().as_secs_f32();
+
+        if elapsed > 2.0 {
+            info!("{:.0} seconds elapsed, exitting gracefully...", elapsed);
+            event_loop.exit();
         }
     }
 

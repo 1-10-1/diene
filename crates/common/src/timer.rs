@@ -63,4 +63,14 @@ impl Stopwatch {
             State::Running { start_time, accumulated } => accumulated + start_time.elapsed(),
         }
     }
+
+    /// Returs whether the stopwatch is currently paused.
+    pub fn is_paused(&self) -> bool {
+        matches!(self.state, State::Paused { .. })
+    }
+
+    /// Returs whether the stopwatch is currently stopped.
+    pub fn is_stopped(&self) -> bool {
+        matches!(self.state, State::Stopped)
+    }
 }
