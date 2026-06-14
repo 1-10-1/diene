@@ -31,7 +31,9 @@ jobs:
         run: sudo apt update && sudo apt install mold
 
       - name: Generate Documentation
-        run: cargo doc --no-deps --workspace
+        run: cargo doc --no-deps --workspace --all-features
+        env:
+            RUSTDOCFLAGS: -D warnings
 
       - name: Fix Redirect to Crate Docs
         run: |
