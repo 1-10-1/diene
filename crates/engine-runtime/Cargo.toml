@@ -10,6 +10,7 @@ homepage = { workspace = true }
 documentation = "https://docs.rs/diene-engine-runtime"
 categories = { workspace = true }
 keywords = { workspace = true }
+readme = "README.md"
 publish = { workspace = true }
 
 [lints]
