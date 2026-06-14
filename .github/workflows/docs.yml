@@ -33,12 +33,13 @@ jobs:
       - name: Generate Documentation
         run: cargo doc --no-deps --workspace --all-features
         env:
-            RUSTDOCFLAGS: -D warnings
+          RUSTDOCFLAGS: -D warnings
 
-      - name: Fix Redirect to Crate Docs
+      - name: Fix Redirect to Diene Docs
         run: |
-          CRATE_NAME=engine_runtime
+          CRATE_NAME=diene
           echo "<meta http-equiv=\"refresh\" content=\"0; url=${CRATE_NAME}/index.html\">" > target/doc/index.html
+          touch target/doc/.nojekyll
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

@@ -340,6 +340,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "diene"
+version = "0.1.0"
+dependencies = [
+ "engine-core",
+ "engine-renderer-api",
+ "engine-runtime",
+]
+
+[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

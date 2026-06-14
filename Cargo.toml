@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/common",
+    "crates/diene",
     "crates/engine-core",
     "crates/engine-renderer-api",
     "crates/engine-renderer-vulkan",
