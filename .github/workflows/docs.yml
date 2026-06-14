@@ -27,6 +27,9 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
 
+      - name: Install mold
+        run: sudo apt update && sudo apt install mold
+
       - name: Generate Documentation
         run: cargo doc --no-deps --workspace
 
