@@ -2,8 +2,12 @@
 name = "sandbox"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
-publish = { workspace = true }
+description = "Private development sandbox for Diene."
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = false
 
 [lints]
 workspace = true

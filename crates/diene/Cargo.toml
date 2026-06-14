@@ -2,7 +2,15 @@
 name = "diene"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
+description = "Top-level facade crate for the Diene game engine."
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/diene"
+categories = { workspace = true }
+keywords = { workspace = true }
+readme = "README.md"
 publish = { workspace = true }
 
 [lints]

@@ -251,16 +251,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -343,9 +333,59 @@ dependencies = [
 name = "diene"
 version = "0.1.0"
 dependencies = [
- "engine-core",
- "engine-renderer-api",
- "engine-runtime",
+ "diene-engine-core",
+ "diene-engine-renderer-api",
+ "diene-engine-runtime",
+]
+
+[[package]]
+name = "diene-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "diene-engine-core"
+version = "0.1.0"
+dependencies = [
+ "diene-common",
+ "diene-engine-renderer-api",
+ "thiserror 2.0.18",
+ "winit",
+]
+
+[[package]]
+name = "diene-engine-renderer-api"
+version = "0.1.0"
+dependencies = [
+ "raw-window-handle",
+]
+
+[[package]]
+name = "diene-engine-renderer-vulkan"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "ash-window",
+ "diene-common",
+ "diene-engine-renderer-api",
+ "raw-window-handle",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "diene-engine-runtime"
+version = "0.1.0"
+dependencies = [
+ "diene-common",
+ "diene-engine-core",
+ "diene-engine-renderer-api",
+ "diene-engine-renderer-vulkan",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -374,46 +414,6 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
-
-[[package]]
-name = "engine-core"
-version = "0.1.0"
-dependencies = [
- "common",
- "engine-renderer-api",
- "thiserror 2.0.18",
- "winit",
-]
-
-[[package]]
-name = "engine-renderer-api"
-version = "0.1.0"
-dependencies = [
- "raw-window-handle",
-]
-
-[[package]]
-name = "engine-renderer-vulkan"
-version = "0.1.0"
-dependencies = [
- "ash",
- "ash-window",
- "common",
- "engine-renderer-api",
- "raw-window-handle",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "engine-runtime"
-version = "0.1.0"
-dependencies = [
- "common",
- "engine-core",
- "engine-renderer-api",
- "engine-renderer-vulkan",
- "thiserror 2.0.18",
-]
 
 [[package]]
 name = "equivalent"
@@ -1261,8 +1261,8 @@ name = "sandbox"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "common",
- "engine-runtime",
+ "diene-common",
+ "diene-engine-runtime",
 ]
 
 [[package]]

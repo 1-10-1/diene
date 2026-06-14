@@ -1,8 +1,15 @@
 [package]
-name = "engine-core"
+name = "diene-engine-core"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
+description = "Application lifecycle and window orchestration for Diene."
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/diene-engine-core"
+categories = { workspace = true }
+keywords = { workspace = true }
 publish = { workspace = true }
 
 [lints]

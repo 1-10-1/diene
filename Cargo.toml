@@ -14,20 +14,25 @@ default-members = ["crates/sandbox"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-publish = false
+repository = "https://github.com/1-10-1/diene"
+homepage = "https://github.com/1-10-1/diene"
+categories = ["game-engines", "graphics", "rendering"]
+keywords = ["game-engine", "vulkan", "rendering"]
+publish = true
 
 [workspace.dependencies]
-common = { path = "crates/common", version = "0.1.0" }
-engine-core = { path = "crates/engine-core", version = "0.1.0" }
-engine-renderer-api = { path = "crates/engine-renderer-api", version = "0.1.0" }
-engine-renderer-vulkan = { path = "crates/engine-renderer-vulkan", version = "0.1.0" }
-engine-runtime = { path = "crates/engine-runtime", version = "0.1.0" }
+common = { package = "diene-common", path = "crates/common", version = "0.1.0" }
+engine-core = { package = "diene-engine-core", path = "crates/engine-core", version = "0.1.0" }
+engine-renderer-api = { package = "diene-engine-renderer-api", path = "crates/engine-renderer-api", version = "0.1.0" }
+engine-renderer-vulkan = { package = "diene-engine-renderer-vulkan", path = "crates/engine-renderer-vulkan", version = "0.1.0" }
+engine-runtime = { package = "diene-engine-runtime", path = "crates/engine-runtime", version = "0.1.0" }
 
 anyhow = "1"
 ash = "0.38.0"
 ash-window = "0.13.0"
-raw-window-handle = "0.6"
+raw-window-handle = { version = "0.6", features = ["std"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

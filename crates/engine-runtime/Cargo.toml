@@ -1,8 +1,15 @@
 [package]
-name = "engine-runtime"
+name = "diene-engine-runtime"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
+description = "Runtime application builder and renderer backend selection for Diene."
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/diene-engine-runtime"
+categories = { workspace = true }
+keywords = { workspace = true }
 publish = { workspace = true }
 
 [lints]

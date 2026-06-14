@@ -1,8 +1,15 @@
 [package]
-name = "engine-renderer-api"
+name = "diene-engine-renderer-api"
 version = { workspace = true }
 edition = { workspace = true }
+rust-version = { workspace = true }
 license = { workspace = true }
+description = "Renderer abstraction traits and window-handle types for Diene."
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/diene-engine-renderer-api"
+categories = { workspace = true }
+keywords = { workspace = true }
 publish = { workspace = true }
 
 [lints]
