@@ -1,4 +1,5 @@
 /target/
+!/target/doc/
 
 # Rust profiling/fuzzing noise
 *.profraw
