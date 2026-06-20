@@ -4,7 +4,7 @@
 
 use common::logging::macros::{debug, info};
 use engine_core::app::{ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError};
-use engine_renderer_api::{BoxedRenderer, RenderWindow, RendererFactory};
+use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererFactory};
 use engine_renderer_vulkan::renderer::{VulkanRendererBuilder, VulkanRendererError};
 use thiserror::Error;
 
@@ -14,7 +14,7 @@ use thiserror::Error;
 pub enum ApplicationError {
     /// Renderer backend operation failed.
     #[error("renderer failed: {0}")]
-    Renderer(#[source] VulkanRendererError),
+    Renderer(#[source] RendererBackendError),
 
     /// Window or event loop operation failed.
     #[error("window failed: {0}")]
@@ -25,14 +25,23 @@ pub enum ApplicationError {
     Build(#[from] ApplicationHostBuildError),
 }
 
-impl From<ApplicationHostError<VulkanRendererError>> for ApplicationError {
-    fn from(error: ApplicationHostError<VulkanRendererError>) -> Self {
+impl From<ApplicationHostError<RendererBackendError>> for ApplicationError {
+    fn from(error: ApplicationHostError<RendererBackendError>) -> Self {
         match error {
             ApplicationHostError::Renderer(error) => Self::Renderer(error),
             ApplicationHostError::Window(error) => Self::Window(error),
             ApplicationHostError::Build(error) => Self::Build(error),
         }
     }
+}
+
+/// Errors returned by compiled renderer backends.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum RendererBackendError {
+    /// Vulkan backend operation failed.
+    #[error("vulkan renderer failed: {0}")]
+    Vulkan(#[from] VulkanRendererError),
 }
 
 /// Renderer backend selection mode.
@@ -125,8 +134,7 @@ struct RendererBackendSelector {
 }
 
 impl RendererFactory for RendererBackendSelector {
-    // FIXME: What the hell?
-    type Error = VulkanRendererError;
+    type Error = RendererBackendError;
 
     fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
         match self.renderer_backend {
@@ -145,10 +153,41 @@ impl RendererFactory for RendererBackendSelector {
     }
 }
 
-fn create_vulkan_renderer(window: &dyn RenderWindow, vsync: bool) -> Result<BoxedRenderer<VulkanRendererError>, VulkanRendererError> {
+#[derive(Debug)]
+struct RendererErrorAdapter<R> {
+    inner: R,
+}
+
+impl<R> RendererErrorAdapter<R> {
+    fn new(inner: R) -> Self {
+        Self { inner }
+    }
+}
+
+impl<R> Renderer for RendererErrorAdapter<R>
+where
+    R: Renderer,
+    R::Error: Into<RendererBackendError>,
+{
+    type Error = RendererBackendError;
+
+    fn prepare_frame(&mut self) -> Result<(), Self::Error> {
+        self.inner.prepare_frame().map_err(Into::into)
+    }
+
+    fn render(&mut self) -> Result<(), Self::Error> {
+        self.inner.render().map_err(Into::into)
+    }
+
+    fn resize(&mut self, extent: RenderExtent) -> Result<(), Self::Error> {
+        self.inner.resize(extent).map_err(Into::into)
+    }
+}
+
+fn create_vulkan_renderer(window: &dyn RenderWindow, vsync: bool) -> Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
     debug!("creating vulkan renderer");
 
     let renderer = VulkanRendererBuilder::default().with_vsync(vsync).build(window)?;
 
-    Ok(Box::new(renderer))
+    Ok(Box::new(RendererErrorAdapter::new(renderer)))
 }
