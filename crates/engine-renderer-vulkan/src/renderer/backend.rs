@@ -1,3 +1,4 @@
+mod device;
 mod instance;
 mod surface;
 
@@ -8,6 +9,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum VulkanBackendError {
     /// Failed to create the vulkan instance
+    /// FIXME: The backend should not propagate low-level vulkan results to the
+    /// frontend.
     #[error("vulkan result has an error value: [{0:?}] {0}")]
     UnexpectedResult(ash::vk::Result),
 
@@ -26,9 +29,16 @@ pub enum VulkanBackendError {
     /// Vulkan surface operation failed.
     #[error("vulkan surface error: {0}")]
     Surface(#[from] surface::VulkanSurfaceError),
+
+    /// Vulkan device operation failed.
+    #[error("vulkan device error: {0}")]
+    Device(#[from] device::VulkanDeviceError),
 }
 
 pub(super) struct VulkanBackend {
+    #[allow(dead_code)]
+    device: device::VulkanDevice,
+
     #[allow(dead_code)]
     surface: surface::VulkanSurface,
 
@@ -59,8 +69,8 @@ impl VulkanBackend {
 
         let surface = Self::create_surface(&entry, &instance, display_handle, window_handle)?;
 
-        let s = Self { surface, instance, entry };
+        let device = Self::create_device(&entry, &instance, &surface)?;
 
-        Ok(s)
+        Ok(Self { device, surface, instance, entry })
     }
 }

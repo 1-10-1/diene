@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
+    ops::Deref,
 };
 
 use ash::{
@@ -16,7 +17,7 @@ use super::VulkanBackend;
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
 pub enum VulkanInstanceError {
-    /// Failed to create the vulkan instance
+    /// Vulkan API call returned an error value.
     #[error("vulkan result has an error value: [{0:?}] {0}")]
     UnexpectedResult(ash::vk::Result),
 }
@@ -46,6 +47,14 @@ impl Drop for VulkanInstance {
         }
 
         trace!("instance destroyed");
+    }
+}
+
+impl Deref for VulkanInstance {
+    type Target = ash::Instance;
+
+    fn deref(&self) -> &Self::Target {
+        &self.raw
     }
 }
 

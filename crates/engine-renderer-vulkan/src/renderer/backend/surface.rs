@@ -39,6 +39,12 @@ impl std::fmt::Debug for VulkanSurface {
     }
 }
 
+impl VulkanSurface {
+    pub(super) fn get(&self) -> ash::vk::SurfaceKHR {
+        self.raw
+    }
+}
+
 impl VulkanBackend {
     pub(super) fn create_surface(
         entry: &ash::Entry,

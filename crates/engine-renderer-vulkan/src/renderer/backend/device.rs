@@ -1,0 +1,135 @@
+#![allow(dead_code)]
+
+use std::ffi::CString;
+
+use ash::{
+    ext::debug_utils,
+    khr::{surface, swapchain},
+    vk::{self, DebugUtilsObjectNameInfoEXT},
+};
+use common::logging::macros::*;
+use thiserror::Error;
+
+use super::VulkanBackend;
+use crate::renderer::backend::{instance::VulkanInstance, surface::VulkanSurface};
+
+/// Errors returned by Vulkan backend operations.
+#[derive(Debug, Error)]
+pub enum VulkanDeviceError {
+    #[error("unexpected error")]
+    Unexpected,
+
+    /// Vulkan API call returned an error value.
+    #[error("vulkan result has an error value: [{0:?}] {0}")]
+    UnexpectedResult(ash::vk::Result),
+}
+
+pub(super) struct VulkanDevice {
+    debug_utils_loader: debug_utils::Device,
+    raw: ash::Device,
+    #[cfg(debug_assertions)]
+    name: String,
+}
+
+impl VulkanDevice {
+    pub(super) fn get(&self) -> &ash::Device {
+        &self.raw
+    }
+
+    #[cfg(debug_assertions)]
+    pub(super) fn get_name(&self) -> &String {
+        &self.name
+    }
+}
+
+impl Drop for VulkanDevice {
+    fn drop(&mut self) {
+        unsafe {
+            self.raw.destroy_device(None);
+        }
+
+        trace!("device destroyed");
+    }
+}
+
+impl std::fmt::Debug for VulkanDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // TODO: Use debug names here
+        f.debug_struct("<Vulkan Device>").finish()
+    }
+}
+
+impl VulkanBackend {
+    /// Creates the Vulkan logical device.
+    pub(super) fn create_device(entry: &ash::Entry, instance: &VulkanInstance, surface: &VulkanSurface) -> Result<VulkanDevice, VulkanDeviceError> {
+        trace!("device initialized");
+
+        let surface_loader = surface::Instance::new(entry, instance);
+
+        let pdevices = unsafe { instance.enumerate_physical_devices().map_err(VulkanDeviceError::UnexpectedResult)? };
+
+        let (pdevice, queue_family_index) = pdevices
+            .iter()
+            .find_map(|pdevice| {
+                unsafe { instance.get_physical_device_queue_family_properties(*pdevice) }
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, info)| -> Option<Result<(vk::PhysicalDevice, usize), VulkanDeviceError>> {
+                        if !info.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                            return None;
+                        }
+
+                        #[allow(clippy::expect_used)]
+                        match unsafe {
+                            surface_loader.get_physical_device_surface_support(
+                                *pdevice,
+                                index.try_into().expect("unexpected index overflow on cast to u32"),
+                                surface.get(),
+                            )
+                        } {
+                            Ok(true) => Some(Ok((*pdevice, index))),
+                            Ok(false) => None,
+                            Err(err) => Some(Err(VulkanDeviceError::UnexpectedResult(err))),
+                        }
+                    })
+            })
+            .transpose()?
+            .ok_or(VulkanDeviceError::UnexpectedResult(vk::Result::ERROR_INITIALIZATION_FAILED))?;
+
+        let queue_family_index = queue_family_index.try_into().map_err(|_| VulkanDeviceError::Unexpected)?;
+
+        let device_extension_names_raw = [swapchain::NAME.as_ptr()];
+        let features = vk::PhysicalDeviceFeatures { shader_clip_distance: 1, ..Default::default() };
+        let priorities = [1.0];
+
+        let queue_info = vk::DeviceQueueCreateInfo::default()
+            .queue_family_index(queue_family_index)
+            .queue_priorities(&priorities);
+
+        let device_create_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(std::slice::from_ref(&queue_info))
+            .enabled_extension_names(&device_extension_names_raw)
+            .enabled_features(&features);
+
+        let raw: ash::Device = unsafe {
+            instance
+                .create_device(pdevice, &device_create_info, None)
+                .map_err(VulkanDeviceError::UnexpectedResult)?
+        };
+
+        let debug_utils_loader = debug_utils::Device::new(instance, &raw);
+
+        #[allow(clippy::unwrap_used)]
+        let name = CString::new("Logical Device").unwrap();
+
+        let name_info = DebugUtilsObjectNameInfoEXT::default().object_name(name.as_c_str()).object_handle(raw.handle());
+
+        unsafe {
+            debug_utils_loader
+                .set_debug_utils_object_name(&name_info)
+                .map_err(VulkanDeviceError::UnexpectedResult)?;
+        };
+
+        Ok(VulkanDevice { debug_utils_loader, raw, name: name.to_string_lossy().into_owned() })
+    }
+}

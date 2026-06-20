@@ -125,6 +125,7 @@ struct RendererBackendSelector {
 }
 
 impl RendererFactory for RendererBackendSelector {
+    // FIXME: What the hell?
     type Error = VulkanRendererError;
 
     fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
