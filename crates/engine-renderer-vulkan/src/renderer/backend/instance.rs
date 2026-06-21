@@ -23,8 +23,8 @@ pub enum VulkanInstanceError {
 }
 
 pub(super) struct VulkanInstance {
-    debug_callback: vk::DebugUtilsMessengerEXT,
-    debug_utils_loader: debug_utils::Instance,
+    debug_callback: Option<vk::DebugUtilsMessengerEXT>,
+    debug_utils_loader: Option<debug_utils::Instance>,
     raw: ash::Instance,
 }
 
@@ -36,12 +36,19 @@ impl VulkanInstance {
 
 impl Drop for VulkanInstance {
     fn drop(&mut self) {
-        unsafe {
-            self.debug_utils_loader.destroy_debug_utils_messenger(self.debug_callback, None);
+        if let (Some(callback), Some(debug_utils_loader)) = (self.debug_callback.take(), self.debug_utils_loader.take()) {
+            // SAFETY: `callback` was created from `debug_utils_loader` for this
+            // instance and is destroyed before the instance itself.
+            unsafe {
+                debug_utils_loader.destroy_debug_utils_messenger(callback, None);
+            }
+
+            trace!("debug messenger destroyed");
         }
 
-        trace!("debug messenger destroyed");
-
+        // SAFETY: `self.raw` is a valid instance owned by this wrapper, all
+        // instance children held by this wrapper have been destroyed, and no
+        // custom allocator was used.
         unsafe {
             self.raw.destroy_instance(None);
         }
@@ -99,21 +106,21 @@ impl VulkanBackend {
                 .flags(vk::InstanceCreateFlags::default())
                 .push_next(&mut debug_info);
 
-            unsafe { entry.create_instance(&create_info, None).map_err(VulkanInstanceError::UnexpectedResult)? }
+            // SAFETY: `create_info` points to local data that lives through the
+            // call, and no custom allocator is used.
+            unsafe { entry.create_instance(&create_info, None) }.map_err(VulkanInstanceError::UnexpectedResult)?
         };
 
         trace!("instance initialized");
 
         let debug_utils_loader = debug_utils::Instance::new(entry, &raw);
-        let debug_callback = unsafe {
-            debug_utils_loader
-                .create_debug_utils_messenger(&debug_info, None)
-                .map_err(VulkanInstanceError::UnexpectedResult)?
-        };
+        // SAFETY: `debug_info` contains a valid static callback function and
+        // lives for the duration of the Vulkan call.
+        let debug_callback = unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }.map_err(VulkanInstanceError::UnexpectedResult)?;
 
         trace!("debug messenger initialized");
 
-        Ok(VulkanInstance { debug_callback, debug_utils_loader, raw })
+        Ok(VulkanInstance { debug_callback: Some(debug_callback), debug_utils_loader: Some(debug_utils_loader), raw })
     }
 }
 
@@ -123,18 +130,24 @@ unsafe extern "system" fn vulkan_debug_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
+    // SAFETY: Vulkan calls this callback with a valid callback data pointer for
+    // the duration of the call.
     let callback_data = unsafe { *p_callback_data };
     let message_id_number = callback_data.message_id_number;
 
     let message_id_name = if callback_data.p_message_id_name.is_null() {
         Cow::from("")
     } else {
+        // SAFETY: Vulkan provides a null-terminated string pointer when this
+        // field is non-null, valid for the duration of the callback.
         unsafe { CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy() }
     };
 
     let message = if callback_data.p_message.is_null() {
         Cow::from("")
     } else {
+        // SAFETY: Vulkan provides a null-terminated message pointer when this
+        // field is non-null, valid for the duration of the callback.
         unsafe { CStr::from_ptr(callback_data.p_message).to_string_lossy() }
     };
 

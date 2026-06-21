@@ -62,7 +62,9 @@ impl VulkanBackend {
         let display_handle = rw.display_handle()?.as_raw();
         let window_handle = rw.window_handle()?.as_raw();
 
-        // SAFETY: Must outlive every other object spawned from it.
+        // SAFETY: Loading the Vulkan entry only performs dynamic symbol lookup;
+        // the owned entry is stored in the backend and outlives all objects
+        // created from it.
         let entry = unsafe { ash::Entry::load() }.map_err(|_| VulkanBackendError::EntryLoadFailure)?;
 
         let instance = Self::create_instance(&entry, display_handle)?;

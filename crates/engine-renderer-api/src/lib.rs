@@ -52,6 +52,9 @@ pub trait Renderer: Debug {
 /// Owned renderer trait object with a fixed error type.
 pub type BoxedRenderer<E> = Box<dyn Renderer<Error = E>>;
 
+/// Type-erased renderer error used at dynamic renderer boundaries.
+pub type RendererError = Box<dyn Error + Send + Sync + 'static>;
+
 /// Creates renderer instances once a native window exists.
 pub trait RendererFactory: Debug {
     /// Error type returned by renderer creation and operations.
@@ -60,3 +63,6 @@ pub trait RendererFactory: Debug {
     /// Creates a renderer for the supplied native window.
     fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error>;
 }
+
+/// Owned renderer factory trait object with a fixed error type.
+pub type BoxedRendererFactory<E> = Box<dyn RendererFactory<Error = E>>;

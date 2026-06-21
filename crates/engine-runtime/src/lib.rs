@@ -4,7 +4,7 @@
 
 use common::logging::macros::{debug, info};
 use engine_core::app::{ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError};
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererFactory};
+use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory};
 use engine_renderer_vulkan::renderer::{VulkanRendererBuilder, VulkanRendererError};
 use thiserror::Error;
 
@@ -14,7 +14,7 @@ use thiserror::Error;
 pub enum ApplicationError {
     /// Renderer backend operation failed.
     #[error("renderer failed: {0}")]
-    Renderer(#[source] RendererBackendError),
+    Renderer(#[source] RendererError),
 
     /// Window or event loop operation failed.
     #[error("window failed: {0}")]
@@ -25,8 +25,8 @@ pub enum ApplicationError {
     Build(#[from] ApplicationHostBuildError),
 }
 
-impl From<ApplicationHostError<RendererBackendError>> for ApplicationError {
-    fn from(error: ApplicationHostError<RendererBackendError>) -> Self {
+impl From<ApplicationHostError> for ApplicationError {
+    fn from(error: ApplicationHostError) -> Self {
         match error {
             ApplicationHostError::Renderer(error) => Self::Renderer(error),
             ApplicationHostError::Window(error) => Self::Window(error),
@@ -56,13 +56,13 @@ pub enum RendererBackend {
     Vulkan,
 }
 
+const DEFAULT_RENDERER_BACKEND: RendererBackend = RendererBackend::Vulkan;
+
 /// Public engine application that owns renderer backend selection policy.
 #[derive(Debug)]
 pub struct Application {
-    host: RuntimeApplicationHost,
+    host: ApplicationHost,
 }
-
-type RuntimeApplicationHost = ApplicationHost<RendererBackendSelector>;
 
 /// Configures an [`Application`].
 #[derive(Debug, Default)]
@@ -137,18 +137,25 @@ impl RendererFactory for RendererBackendSelector {
     type Error = RendererBackendError;
 
     fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
-        match self.renderer_backend {
-            RendererBackend::Auto | RendererBackend::Vulkan => {
-                info!(
-                    "selected renderer backend vulkan with {} policy",
-                    if matches!(self.renderer_backend, RendererBackend::Auto) {
-                        "auto"
-                    } else {
-                        "forced"
-                    }
-                );
-                create_vulkan_renderer(window, self.vsync)
+        let auto = self.renderer_backend == RendererBackend::Auto;
+
+        if auto {
+            self.renderer_backend = DEFAULT_RENDERER_BACKEND;
+        }
+
+        info!(
+            "selecting renderer backend {:?}{}",
+            self.renderer_backend,
+            if auto {
+                " (auto)"
+            } else {
+                ""
             }
+        );
+
+        match self.renderer_backend {
+            RendererBackend::Vulkan => create_vulkan_renderer(window, self.vsync),
+            RendererBackend::Auto => unreachable!(),
         }
     }
 }

@@ -44,6 +44,10 @@ impl VulkanDevice {
 
 impl Drop for VulkanDevice {
     fn drop(&mut self) {
+        // SAFETY: `self.raw` is a valid logical device created by `create_device`,
+        // owned exclusively by this RAII wrapper, and destroyed exactly once here.
+        // No custom allocator was used at creation, so `None` is passed again.
+        // Future device-owned resources must be destroyed before this wrapper drops.
         unsafe {
             self.raw.destroy_device(None);
         }
@@ -66,23 +70,29 @@ impl VulkanBackend {
 
         let surface_loader = surface::Instance::new(entry, instance);
 
-        let pdevices = unsafe { instance.enumerate_physical_devices().map_err(VulkanDeviceError::UnexpectedResult)? };
+        // SAFETY: `instance` owns a valid Vulkan instance for the duration of device
+        // selection.
+        let pdevices = unsafe { instance.enumerate_physical_devices() }.map_err(VulkanDeviceError::UnexpectedResult)?;
 
         let (pdevice, queue_family_index) = pdevices
             .iter()
             .find_map(|pdevice| {
+                // SAFETY: `pdevice` came from `instance`, so querying its queue families
+                // against the same instance is valid.
                 unsafe { instance.get_physical_device_queue_family_properties(*pdevice) }
                     .iter()
                     .enumerate()
-                    .find_map(|(index, info)| -> Option<Result<(vk::PhysicalDevice, usize), VulkanDeviceError>> {
+                    .find_map(|(index, info)| {
                         if !info.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
                             return None;
                         }
 
-                        #[allow(clippy::expect_used)]
+                        // SAFETY: `pdevice` came from `instance`, `surface` was created for the same
+                        // instance, and `index` comes from this physical device's queue-family list.
                         match unsafe {
                             surface_loader.get_physical_device_surface_support(
                                 *pdevice,
+                                #[allow(clippy::expect_used)]
                                 index.try_into().expect("unexpected index overflow on cast to u32"),
                                 surface.get(),
                             )
@@ -111,11 +121,9 @@ impl VulkanBackend {
             .enabled_extension_names(&device_extension_names_raw)
             .enabled_features(&features);
 
-        let raw: ash::Device = unsafe {
-            instance
-                .create_device(pdevice, &device_create_info, None)
-                .map_err(VulkanDeviceError::UnexpectedResult)?
-        };
+        // SAFETY: `pdevice` and `queue_family_index` were selected from `instance`,
+        // and `device_create_info` only references local data that lives through this call.
+        let raw = unsafe { instance.create_device(pdevice, &device_create_info, None) }.map_err(VulkanDeviceError::UnexpectedResult)?;
 
         let debug_utils_loader = debug_utils::Device::new(instance, &raw);
 
@@ -124,11 +132,9 @@ impl VulkanBackend {
 
         let name_info = DebugUtilsObjectNameInfoEXT::default().object_name(name.as_c_str()).object_handle(raw.handle());
 
-        unsafe {
-            debug_utils_loader
-                .set_debug_utils_object_name(&name_info)
-                .map_err(VulkanDeviceError::UnexpectedResult)?;
-        };
+        // SAFETY: `raw` is a live device, `debug_utils_loader` was created for it, and
+        // `name_info` points to `name`, which lives through this call.
+        unsafe { debug_utils_loader.set_debug_utils_object_name(&name_info) }.map_err(VulkanDeviceError::UnexpectedResult)?;
 
         Ok(VulkanDevice { debug_utils_loader, raw, name: name.to_string_lossy().into_owned() })
     }

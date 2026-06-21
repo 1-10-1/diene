@@ -33,6 +33,7 @@ pub mod prelude {
 /// Renderer abstraction shared by engine orchestration and backends.
 pub mod renderer {
     pub use engine_renderer_api::{
-        BoxedRenderer, DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RenderExtent, RenderWindow, Renderer, RendererFactory, WindowHandle,
+        BoxedRenderer, BoxedRendererFactory, DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RenderExtent, RenderWindow, Renderer, RendererError,
+        RendererFactory, WindowHandle,
     };
 }

@@ -6,7 +6,7 @@ use common::{
     logging::macros::{debug, error, info},
     timer::Stopwatch,
 };
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RendererFactory};
+use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, RendererError, RendererFactory};
 use thiserror::Error;
 use winit::{
     application::ApplicationHandler,
@@ -22,13 +22,10 @@ pub use self::windowing::WindowError;
 
 /// Errors returned by application host lifecycle operations.
 #[derive(Debug, Error)]
-pub enum ApplicationHostError<E>
-where
-    E: StdError + Send + Sync + 'static,
-{
+pub enum ApplicationHostError {
     /// Renderer operation failed.
     #[error("renderer failed: {0}")]
-    Renderer(#[source] E),
+    Renderer(#[source] RendererError),
 
     /// Window or event loop operation failed.
     #[error("window failed: {0}")]
@@ -50,15 +47,12 @@ pub enum ApplicationHostBuildError {
 
 /// Drives the native window, event loop, and renderer for an application.
 #[derive(Debug)]
-pub struct ApplicationHost<F>
-where
-    F: RendererFactory,
-{
+pub struct ApplicationHost {
     name: String,
-    renderer_factory: F,
-    renderer: Option<BoxedRenderer<F::Error>>,
+    renderer_factory: BoxedErasedRendererFactory,
+    renderer: Option<BoxedErasedRenderer>,
     window: Option<Window>,
-    error: Option<ApplicationHostError<F::Error>>,
+    error: Option<ApplicationHostError>,
 
     #[allow(dead_code)]
     stopwatch: common::timer::Stopwatch,
@@ -66,18 +60,12 @@ where
 
 /// Configures an [`ApplicationHost`].
 #[derive(Debug)]
-pub struct ApplicationHostBuilder<F>
-where
-    F: RendererFactory,
-{
+pub struct ApplicationHostBuilder {
     name: Option<String>,
-    renderer_factory: F,
+    renderer_factory: BoxedErasedRendererFactory,
 }
 
-impl<F> ApplicationHostBuilder<F>
-where
-    F: RendererFactory,
-{
+impl ApplicationHostBuilder {
     /// Sets the human-readable application name.
     #[must_use]
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
@@ -86,7 +74,7 @@ where
     }
 
     /// Builds the application host.
-    pub fn build(self) -> Result<ApplicationHost<F>, ApplicationHostError<F::Error>> {
+    pub fn build(self) -> Result<ApplicationHost, ApplicationHostError> {
         let name = self.name.unwrap_or_else(|| "Untitled Application".to_owned());
 
         if name.trim().is_empty() {
@@ -108,13 +96,10 @@ where
     }
 }
 
-impl<F> ApplicationHost<F>
-where
-    F: RendererFactory,
-{
+impl ApplicationHost {
     /// Creates a builder for configuring an [`ApplicationHost`].
-    pub fn builder(renderer_factory: F) -> ApplicationHostBuilder<F> {
-        ApplicationHostBuilder { name: None, renderer_factory }
+    pub fn builder(renderer_factory: impl RendererFactory + 'static) -> ApplicationHostBuilder {
+        ApplicationHostBuilder { name: None, renderer_factory: Box::new(RendererFactoryAdapter::new(renderer_factory)) }
     }
 
     /// Returns the human-readable application name.
@@ -123,7 +108,7 @@ where
     }
 
     /// Runs the application until the event loop exits.
-    pub fn run(mut self) -> Result<(), ApplicationHostError<F::Error>> {
+    pub fn run(mut self) -> Result<(), ApplicationHostError> {
         info!("[{}] running application", self.name);
 
         let event_loop = EventLoop::new().map_err(WindowError::from)?;
@@ -131,7 +116,7 @@ where
         event_loop.run_app(&mut self).map_err(WindowError::from)?;
 
         if let Some(error) = self.error.take() {
-            error!("[{}] application event loop exited with error: {}", self.name, error);
+            error!("[{}] application event loop exited with error: {:#}", self.name, error);
             return Err(error);
         }
 
@@ -140,7 +125,7 @@ where
         Ok(())
     }
 
-    fn fail(&mut self, event_loop: &ActiveEventLoop, error: ApplicationHostError<F::Error>) {
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: ApplicationHostError) {
         self.error = Some(error);
         event_loop.exit();
     }
@@ -189,10 +174,7 @@ where
     }
 }
 
-impl<F> ApplicationHandler for ApplicationHost<F>
-where
-    F: RendererFactory,
-{
+impl ApplicationHandler for ApplicationHost {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -245,4 +227,85 @@ where
             _ => {}
         }
     }
+}
+
+type BoxedErasedRenderer = Box<dyn ErasedRenderer>;
+type BoxedErasedRendererFactory = Box<dyn ErasedRendererFactory>;
+
+trait ErasedRenderer: std::fmt::Debug {
+    fn prepare_frame(&mut self) -> Result<(), RendererError>;
+
+    fn render(&mut self) -> Result<(), RendererError>;
+
+    fn resize(&mut self, extent: RenderExtent) -> Result<(), RendererError>;
+}
+
+#[derive(Debug)]
+struct RendererAdapter<E>
+where
+    E: StdError + Send + Sync + 'static,
+{
+    inner: BoxedRenderer<E>,
+}
+
+impl<E> RendererAdapter<E>
+where
+    E: StdError + Send + Sync + 'static,
+{
+    fn new(inner: BoxedRenderer<E>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<E> ErasedRenderer for RendererAdapter<E>
+where
+    E: StdError + Send + Sync + 'static,
+{
+    fn prepare_frame(&mut self) -> Result<(), RendererError> {
+        self.inner.prepare_frame().map_err(erase_renderer_error)
+    }
+
+    fn render(&mut self) -> Result<(), RendererError> {
+        self.inner.render().map_err(erase_renderer_error)
+    }
+
+    fn resize(&mut self, extent: RenderExtent) -> Result<(), RendererError> {
+        self.inner.resize(extent).map_err(erase_renderer_error)
+    }
+}
+
+trait ErasedRendererFactory: std::fmt::Debug {
+    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedErasedRenderer, RendererError>;
+}
+
+#[derive(Debug)]
+struct RendererFactoryAdapter<F>
+where
+    F: RendererFactory,
+{
+    inner: F,
+}
+
+impl<F> RendererFactoryAdapter<F>
+where
+    F: RendererFactory,
+{
+    fn new(inner: F) -> Self {
+        Self { inner }
+    }
+}
+
+impl<F> ErasedRendererFactory for RendererFactoryAdapter<F>
+where
+    F: RendererFactory + 'static,
+{
+    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedErasedRenderer, RendererError> {
+        let renderer = self.inner.create_renderer(window).map_err(erase_renderer_error)?;
+
+        Ok(Box::new(RendererAdapter::new(renderer)))
+    }
+}
+
+fn erase_renderer_error(error: impl StdError + Send + Sync + 'static) -> RendererError {
+    Box::new(error)
 }

@@ -1,3 +1,4 @@
+use ash::vk;
 use common::logging::macros::*;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use thiserror::Error;
@@ -24,6 +25,8 @@ pub(super) struct VulkanSurface {
 
 impl Drop for VulkanSurface {
     fn drop(&mut self) {
+        // SAFETY: `self.raw` was created by this loader with no custom allocator,
+        // and the surface wrapper destroys it exactly once.
         unsafe {
             self.loader.destroy_surface(self.raw, None);
         }
@@ -52,12 +55,19 @@ impl VulkanBackend {
         display_handle: RawDisplayHandle,
         window_handle: RawWindowHandle,
     ) -> Result<VulkanSurface, VulkanSurfaceError> {
-        let raw = unsafe { ash_window::create_surface(entry, instance.get(), display_handle, window_handle, None).map_err(VulkanSurfaceError::UnexpectedResult)? };
+        // SAFETY: The raw display/window handles come from the live winit window,
+        // and `instance` was created with the required platform surface extensions.
+        let raw = unsafe { ash_window::create_surface(entry, instance.get(), display_handle, window_handle, None) }.map_err(VulkanSurfaceError::UnexpectedResult)?;
 
         let loader = ash::khr::surface::Instance::new(entry, instance.get());
 
+        let surface = VulkanSurface { raw, loader };
+
+        // FIXME: Intentional for debugging purposes.
+        Err(VulkanSurfaceError::UnexpectedResult(vk::Result::ERROR_OUT_OF_POOL_MEMORY))?;
+
         trace!("surface initialized");
 
-        Ok(VulkanSurface { raw, loader })
+        Ok(surface)
     }
 }
