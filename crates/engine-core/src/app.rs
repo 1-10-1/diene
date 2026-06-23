@@ -2,11 +2,10 @@
 
 use std::error::Error as StdError;
 
-use common::{
-    logging::macros::{debug, error, info},
-    timer::Stopwatch,
+use common::{logging::macros::*, timer::Stopwatch};
+use engine_renderer_api::{
+    BoxedRenderer, RenderExtent, RenderWindow, RendererError, RendererFactory,
 };
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, RendererError, RendererFactory};
 use thiserror::Error;
 use winit::{
     application::ApplicationHandler,
@@ -99,7 +98,10 @@ impl ApplicationHostBuilder {
 impl ApplicationHost {
     /// Creates a builder for configuring an [`ApplicationHost`].
     pub fn builder(renderer_factory: impl RendererFactory + 'static) -> ApplicationHostBuilder {
-        ApplicationHostBuilder { name: None, renderer_factory: Box::new(RendererFactoryAdapter::new(renderer_factory)) }
+        ApplicationHostBuilder {
+            name: None,
+            renderer_factory: Box::new(RendererFactoryAdapter::new(renderer_factory)),
+        }
     }
 
     /// Returns the human-readable application name.
@@ -115,10 +117,7 @@ impl ApplicationHost {
 
         event_loop.run_app(&mut self).map_err(WindowError::from)?;
 
-        if let Some(error) = self.error.take() {
-            error!("[{}] application event loop exited with error: {:#}", self.name, error);
-            return Err(error);
-        }
+        self.error.take().map_or(Ok(()), Err)?;
 
         info!("[{}] application event loop exited gracefully", self.name);
 
@@ -161,7 +160,11 @@ impl ApplicationHost {
         }
     }
 
-    fn resize_renderer(&mut self, event_loop: &ActiveEventLoop, size: winit::dpi::PhysicalSize<u32>) {
+    fn resize_renderer(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        size: winit::dpi::PhysicalSize<u32>,
+    ) {
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
@@ -208,7 +211,12 @@ impl ApplicationHandler for ApplicationHost {
         self.window = Some(window);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
         if !self.is_main_window(window_id) {
             return;
         }
@@ -275,7 +283,10 @@ where
 }
 
 trait ErasedRendererFactory: std::fmt::Debug {
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedErasedRenderer, RendererError>;
+    fn create_renderer(
+        &mut self,
+        window: &dyn RenderWindow,
+    ) -> Result<BoxedErasedRenderer, RendererError>;
 }
 
 #[derive(Debug)]
@@ -299,7 +310,10 @@ impl<F> ErasedRendererFactory for RendererFactoryAdapter<F>
 where
     F: RendererFactory + 'static,
 {
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedErasedRenderer, RendererError> {
+    fn create_renderer(
+        &mut self,
+        window: &dyn RenderWindow,
+    ) -> Result<BoxedErasedRenderer, RendererError> {
         let renderer = self.inner.create_renderer(window).map_err(erase_renderer_error)?;
 
         Ok(Box::new(RendererAdapter::new(renderer)))

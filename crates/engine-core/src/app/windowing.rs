@@ -1,6 +1,9 @@
 //! Thin wrapper around native window creation and access.
 
-use engine_renderer_api::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RenderExtent, RenderWindow, WindowHandle};
+use engine_renderer_api::{
+    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RenderExtent, RenderWindow,
+    WindowHandle,
+};
 use thiserror::Error;
 use winit::{
     dpi::PhysicalSize,

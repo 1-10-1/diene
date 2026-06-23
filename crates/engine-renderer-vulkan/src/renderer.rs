@@ -42,7 +42,7 @@ impl VulkanRendererBuilder {
             return Err(VulkanRendererError::InvalidWindowSize(extent));
         }
 
-        let backend = VulkanBackend::new(window)?;
+        let backend = VulkanBackend::new(window, self.vsync)?;
 
         VulkanRenderer::new(self.vsync, backend)
     }
@@ -69,7 +69,10 @@ impl VulkanRenderer {
 impl RendererFactory for VulkanRendererBuilder {
     type Error = VulkanRendererError;
 
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
+    fn create_renderer(
+        &mut self,
+        window: &dyn RenderWindow,
+    ) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
         Ok(Box::new((*self).build(window)?))
     }
 }

@@ -31,7 +31,8 @@ impl Stopwatch {
     pub fn start(&mut self) {
         match self.state {
             State::Stopped => {
-                self.state = State::Running { start_time: Instant::now(), accumulated: Duration::new(0, 0) };
+                self.state =
+                    State::Running { start_time: Instant::now(), accumulated: Duration::new(0, 0) };
             }
             State::Paused { accumulated } => {
                 self.state = State::Running { start_time: Instant::now(), accumulated };

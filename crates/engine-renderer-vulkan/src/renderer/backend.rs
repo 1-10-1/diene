@@ -2,7 +2,8 @@ mod device;
 mod instance;
 mod surface;
 
-use engine_renderer_api::{HandleError, RenderWindow};
+use ash::vk::Extent2D;
+use engine_renderer_api::{HandleError, RenderExtent, RenderWindow};
 use thiserror::Error;
 
 /// Errors returned by Vulkan backend operations.
@@ -58,20 +59,27 @@ impl std::fmt::Debug for VulkanBackend {
 }
 
 impl VulkanBackend {
-    pub(super) fn new(rw: &dyn RenderWindow) -> Result<Self, VulkanBackendError> {
+    pub(super) fn new(rw: &dyn RenderWindow, vsync: bool) -> Result<Self, VulkanBackendError> {
         let display_handle = rw.display_handle()?.as_raw();
         let window_handle = rw.window_handle()?.as_raw();
 
         // SAFETY: Loading the Vulkan entry only performs dynamic symbol lookup;
         // the owned entry is stored in the backend and outlives all objects
         // created from it.
-        let entry = unsafe { ash::Entry::load() }.map_err(|_| VulkanBackendError::EntryLoadFailure)?;
+        let entry =
+            unsafe { ash::Entry::load() }.map_err(|_| VulkanBackendError::EntryLoadFailure)?;
 
         let instance = Self::create_instance(&entry, display_handle)?;
 
-        let surface = Self::create_surface(&entry, &instance, display_handle, window_handle)?;
+        let mut surface = Self::create_surface(&entry, &instance, display_handle, window_handle)?;
 
-        let device = Self::create_device(&entry, &instance, &surface)?;
+        let device = Self::create_device(&instance, &surface)?;
+
+        {
+            let RenderExtent { width, height } = rw.size();
+
+            surface.refresh(&device, Extent2D { width, height }, vsync)?;
+        }
 
         Ok(Self { device, surface, instance, entry })
     }

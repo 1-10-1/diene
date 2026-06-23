@@ -48,7 +48,12 @@ where
     S: Subscriber + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,
 {
-    fn format_event(&self, ctx: &FmtContext<'_, S, N>, mut writer: Writer<'_>, event: &Event<'_>) -> std_fmt::Result {
+    fn format_event(
+        &self,
+        ctx: &FmtContext<'_, S, N>,
+        mut writer: Writer<'_>,
+        event: &Event<'_>,
+    ) -> std_fmt::Result {
         let metadata = event.metadata();
 
         write_level(&mut writer, *metadata.level())?;
@@ -101,17 +106,21 @@ fn write_level(writer: &mut Writer<'_>, level: Level) -> std_fmt::Result {
 ///
 /// Keep the returned [`LoggerGuard`] alive until shutdown.
 pub fn init() -> Result<LoggerGuard> {
-    let log_dir = std::env::current_dir().context("failed to get current working directory")?.join("logs");
+    let log_dir =
+        std::env::current_dir().context("failed to get current working directory")?.join("logs");
 
-    fs::create_dir_all(&log_dir).with_context(|| format!("failed to create log directory at {}", log_dir.display()))?;
+    fs::create_dir_all(&log_dir)
+        .with_context(|| format!("failed to create log directory at {}", log_dir.display()))?;
 
     let log_path = log_dir.join("diene.log");
 
-    let log_file = File::create(&log_path).with_context(|| format!("failed to create log file at {}", log_path.display()))?;
+    let log_file = File::create(&log_path)
+        .with_context(|| format!("failed to create log file at {}", log_path.display()))?;
 
     let formatter = EngineFormatter::new();
 
-    let stdout_layer = fmt::layer().with_writer(std::io::stdout).with_ansi(true).event_format(formatter.clone());
+    let stdout_layer =
+        fmt::layer().with_writer(std::io::stdout).with_ansi(true).event_format(formatter.clone());
 
     let (file_writer, file_guard) = tracing_appender::non_blocking(log_file);
 
@@ -123,7 +132,8 @@ pub fn init() -> Result<LoggerGuard> {
         "info"
     };
 
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_level));
 
     tracing_subscriber::registry()
         .with(filter)

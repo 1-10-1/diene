@@ -6,7 +6,7 @@ use std::{
 
 use ash::{
     ext::debug_utils,
-    vk::{self, DebugUtilsMessageSeverityFlagsEXT},
+    vk::{self, DebugUtilsMessageSeverityFlagsEXT, ValidationFeatureEnableEXT},
 };
 use common::logging::macros::*;
 use raw_window_handle::RawDisplayHandle;
@@ -18,8 +18,11 @@ use super::VulkanBackend;
 #[derive(Debug, Error)]
 pub enum VulkanInstanceError {
     /// Vulkan API call returned an error value.
-    #[error("vulkan result has an error value: [{0:?}] {0}")]
+    #[error("vulkan result has an error value: {0}")]
     UnexpectedResult(ash::vk::Result),
+
+    #[error("insufficient vulkan API version")]
+    InsufficientVersion,
 }
 
 pub(super) struct VulkanInstance {
@@ -36,7 +39,9 @@ impl VulkanInstance {
 
 impl Drop for VulkanInstance {
     fn drop(&mut self) {
-        if let (Some(callback), Some(debug_utils_loader)) = (self.debug_callback.take(), self.debug_utils_loader.take()) {
+        if let (Some(callback), Some(debug_utils_loader)) =
+            (self.debug_callback.take(), self.debug_utils_loader.take())
+        {
             // SAFETY: `callback` was created from `debug_utils_loader` for this
             // instance and is destroyed before the instance itself.
             unsafe {
@@ -74,9 +79,27 @@ impl std::fmt::Debug for VulkanInstance {
 
 impl VulkanBackend {
     /// Creates the Vulkan instance.
-    pub(super) fn create_instance(entry: &ash::Entry, display_handle: RawDisplayHandle) -> Result<VulkanInstance, VulkanInstanceError> {
+    pub(super) fn create_instance(
+        entry: &ash::Entry,
+        display_handle: RawDisplayHandle,
+    ) -> Result<VulkanInstance, VulkanInstanceError> {
+        let min_api_version = vk::make_api_version(0, 1, 4, 0);
+
+        // SAFETY: `entry` was loaded successfully and this call only queries loader-supported
+        // instance API version information.
+        if let Some(version) = unsafe { entry.try_enumerate_instance_version() }
+            .map_err(VulkanInstanceError::UnexpectedResult)?
+        {
+            if version < min_api_version {
+                return Err(VulkanInstanceError::InsufficientVersion);
+            }
+        } else {
+            return Err(VulkanInstanceError::InsufficientVersion);
+        }
+
         let layer_names = [c"VK_LAYER_KHRONOS_validation"];
-        let layers_names_raw: Vec<*const c_char> = layer_names.iter().map(|raw_name| raw_name.as_ptr()).collect();
+        let layers_names_raw: Vec<*const c_char> =
+            layer_names.iter().map(|raw_name| raw_name.as_ptr()).collect();
 
         let mut extension_names = ash_window::enumerate_required_extensions(display_handle)
             .map_err(VulkanInstanceError::UnexpectedResult)?
@@ -89,12 +112,23 @@ impl VulkanBackend {
             .application_version(0)
             .engine_name(c"Diene")
             .engine_version(0)
-            .api_version(vk::make_api_version(0, 1, 4, 0));
+            .api_version(min_api_version);
+
+        let mut validation_features = vk::ValidationFeaturesEXT::default()
+            .enabled_validation_features(&[
+                ValidationFeatureEnableEXT::BEST_PRACTICES,
+                ValidationFeatureEnableEXT::SYNCHRONIZATION_VALIDATION,
+            ]);
 
         let mut debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
-            .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING)
+            .message_severity(
+                vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                    | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
+            )
             .message_type(
-                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+                vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                    | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                    | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
             )
             .pfn_user_callback(Some(vulkan_debug_callback));
 
@@ -103,12 +137,13 @@ impl VulkanBackend {
                 .application_info(&appinfo)
                 .enabled_layer_names(&layers_names_raw)
                 .enabled_extension_names(&extension_names)
-                .flags(vk::InstanceCreateFlags::default())
+                .push_next(&mut validation_features)
                 .push_next(&mut debug_info);
 
             // SAFETY: `create_info` points to local data that lives through the
             // call, and no custom allocator is used.
-            unsafe { entry.create_instance(&create_info, None) }.map_err(VulkanInstanceError::UnexpectedResult)?
+            unsafe { entry.create_instance(&create_info, None) }
+                .map_err(VulkanInstanceError::UnexpectedResult)?
         };
 
         trace!("instance initialized");
@@ -116,11 +151,17 @@ impl VulkanBackend {
         let debug_utils_loader = debug_utils::Instance::new(entry, &raw);
         // SAFETY: `debug_info` contains a valid static callback function and
         // lives for the duration of the Vulkan call.
-        let debug_callback = unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }.map_err(VulkanInstanceError::UnexpectedResult)?;
+        let debug_callback =
+            unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }
+                .map_err(VulkanInstanceError::UnexpectedResult)?;
 
         trace!("debug messenger initialized");
 
-        Ok(VulkanInstance { debug_callback: Some(debug_callback), debug_utils_loader: Some(debug_utils_loader), raw })
+        Ok(VulkanInstance {
+            debug_callback: Some(debug_callback),
+            debug_utils_loader: Some(debug_utils_loader),
+            raw,
+        })
     }
 }
 

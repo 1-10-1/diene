@@ -21,7 +21,9 @@ pub use self::app::{Application, ApplicationBuilder, ApplicationError, RendererB
 
 /// Application construction, runtime policy, and host lifecycle APIs.
 pub mod app {
-    pub use engine_core::app::{ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError};
+    pub use engine_core::app::{
+        ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError,
+    };
     pub use engine_runtime::{Application, ApplicationBuilder, ApplicationError, RendererBackend};
 }
 
@@ -33,7 +35,8 @@ pub mod prelude {
 /// Renderer abstraction shared by engine orchestration and backends.
 pub mod renderer {
     pub use engine_renderer_api::{
-        BoxedRenderer, BoxedRendererFactory, DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RenderExtent, RenderWindow, Renderer, RendererError,
-        RendererFactory, WindowHandle,
+        BoxedRenderer, BoxedRendererFactory, DisplayHandle, HandleError, HasDisplayHandle,
+        HasWindowHandle, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory,
+        WindowHandle,
     };
 }

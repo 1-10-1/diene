@@ -3,8 +3,12 @@
 #![forbid(unsafe_code)]
 
 use common::logging::macros::{debug, info};
-use engine_core::app::{ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError};
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory};
+use engine_core::app::{
+    ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError,
+};
+use engine_renderer_api::{
+    BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory,
+};
 use engine_renderer_vulkan::renderer::{VulkanRendererBuilder, VulkanRendererError};
 use thiserror::Error;
 
@@ -98,7 +102,8 @@ impl ApplicationBuilder {
     pub fn build(self) -> Result<Application, ApplicationError> {
         debug!("building runtime application with backend {:?}", self.renderer_backend);
 
-        let selector = RendererBackendSelector { renderer_backend: self.renderer_backend, vsync: self.vsync };
+        let selector =
+            RendererBackendSelector { renderer_backend: self.renderer_backend, vsync: self.vsync };
 
         let mut builder = ApplicationHost::builder(selector);
 
@@ -136,7 +141,10 @@ struct RendererBackendSelector {
 impl RendererFactory for RendererBackendSelector {
     type Error = RendererBackendError;
 
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
+    fn create_renderer(
+        &mut self,
+        window: &dyn RenderWindow,
+    ) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
         let auto = self.renderer_backend == RendererBackend::Auto;
 
         if auto {
@@ -191,7 +199,10 @@ where
     }
 }
 
-fn create_vulkan_renderer(window: &dyn RenderWindow, vsync: bool) -> Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
+fn create_vulkan_renderer(
+    window: &dyn RenderWindow,
+    vsync: bool,
+) -> Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
     debug!("creating vulkan renderer");
 
     let renderer = VulkanRendererBuilder::default().with_vsync(vsync).build(window)?;

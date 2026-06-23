@@ -1,5 +1,9 @@
 //! Development sandbox for running and testing the engine.
 
+use std::fmt::Write;
+
+use common::logging::macros::*;
+
 fn main() {
     if let Err(err) = sandbox::run() {
         print_error(&err);
@@ -9,16 +13,20 @@ fn main() {
 fn print_error(err: &anyhow::Error) {
     let mut chain = err.chain();
 
+    let mut buffer = String::new();
+
     if let Some(error) = chain.next() {
-        eprintln!("ERROR: {}", local_error_message(error));
+        let _ = writeln!(buffer, "ERROR: {}", local_error_message(error));
     }
 
     let mut indent = 4;
 
     for cause in chain {
-        eprintln!("{:indent$}because: {}", "", local_error_message(cause));
+        let _ = writeln!(buffer, "{:indent$}because: {}", "", local_error_message(cause));
         indent += 4;
     }
+
+    error!("{buffer}");
 }
 
 fn local_error_message(error: &(dyn std::error::Error + 'static)) -> String {

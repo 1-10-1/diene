@@ -4,7 +4,9 @@
 
 use std::{error::Error, fmt::Debug};
 
-pub use raw_window_handle::{DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle};
+pub use raw_window_handle::{
+    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
+};
 
 /// Drawable size in physical pixels.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -61,7 +63,10 @@ pub trait RendererFactory: Debug {
     type Error: Error + Send + Sync + 'static;
 
     /// Creates a renderer for the supplied native window.
-    fn create_renderer(&mut self, window: &dyn RenderWindow) -> Result<BoxedRenderer<Self::Error>, Self::Error>;
+    fn create_renderer(
+        &mut self,
+        window: &dyn RenderWindow,
+    ) -> Result<BoxedRenderer<Self::Error>, Self::Error>;
 }
 
 /// Owned renderer factory trait object with a fixed error type.
