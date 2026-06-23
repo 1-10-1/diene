@@ -31,6 +31,7 @@ pub(super) struct VulkanSurface {
     loader: ash::khr::surface::Instance,
 }
 
+#[expect(dead_code)]
 pub(super) struct SurfaceDetails {
     capabilities: SurfaceCapabilitiesKHR,
     formats: Vec<SurfaceFormatKHR>,
