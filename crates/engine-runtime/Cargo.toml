@@ -23,3 +23,4 @@ engine-renderer-api = { workspace = true }
 engine-renderer-vulkan = { workspace = true }
 
 thiserror = { workspace = true }
+error-stack = { workspace = true }

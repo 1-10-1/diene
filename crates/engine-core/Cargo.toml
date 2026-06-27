@@ -20,5 +20,6 @@ workspace = true
 common = { workspace = true }
 engine-renderer-api = { workspace = true }
 
+error-stack = { workspace = true }
 thiserror = { workspace = true }
 winit = { workspace = true }

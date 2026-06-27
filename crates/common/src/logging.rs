@@ -106,6 +106,8 @@ fn write_level(writer: &mut Writer<'_>, level: Level) -> std_fmt::Result {
 ///
 /// Keep the returned [`LoggerGuard`] alive until shutdown.
 pub fn init() -> Result<LoggerGuard> {
+    error_stack::Report::set_color_mode(error_stack::fmt::ColorMode::None);
+
     let log_dir =
         std::env::current_dir().context("failed to get current working directory")?.join("logs");
 

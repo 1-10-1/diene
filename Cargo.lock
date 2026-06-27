@@ -343,6 +343,7 @@ name = "diene-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "error-stack",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -354,6 +355,7 @@ version = "0.1.0"
 dependencies = [
  "diene-common",
  "diene-engine-renderer-api",
+ "error-stack",
  "thiserror 2.0.18",
  "winit",
 ]
@@ -362,6 +364,7 @@ dependencies = [
 name = "diene-engine-renderer-api"
 version = "0.1.0"
 dependencies = [
+ "error-stack",
  "raw-window-handle",
 ]
 
@@ -373,6 +376,7 @@ dependencies = [
  "ash-window",
  "diene-common",
  "diene-engine-renderer-api",
+ "error-stack",
  "raw-window-handle",
  "thiserror 2.0.18",
 ]
@@ -385,6 +389,7 @@ dependencies = [
  "diene-engine-core",
  "diene-engine-renderer-api",
  "diene-engine-renderer-vulkan",
+ "error-stack",
  "thiserror 2.0.18",
 ]
 
@@ -429,6 +434,16 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "error-stack"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe413319145d1063f080f27556fd30b1d70b01e2ba10c2a6e40d4be982ffc5d1"
+dependencies = [
+ "anyhow",
+ "rustc_version",
 ]
 
 [[package]]

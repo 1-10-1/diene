@@ -3,6 +3,7 @@ use ash::vk::{
     SurfaceKHR,
 };
 use common::logging::macros::*;
+use error_stack::{Report, Result, ResultExt};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use thiserror::Error;
 
@@ -11,17 +12,13 @@ use crate::renderer::backend::{device, instance};
 
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
-pub enum VulkanSurfaceError {
+pub(super) enum VulkanSurfaceError {
     /// Failed to create the vulkan instance
     #[error("vulkan result has an error value: {0}")]
     UnexpectedResult(ash::vk::Result),
 
-    /// Failed to load the vulkan entry
-    #[error("transparent")]
-    DisplayHandleError,
-
     /// Failed to retrieve surface formats
-    #[error("transparent")]
+    #[error("no surface formats available")]
     NoSurfaceFormats,
 }
 
@@ -81,7 +78,8 @@ impl VulkanSurface {
         let capabilities = unsafe {
             self.loader
                 .get_physical_device_surface_capabilities(device.get_physical(), self.raw)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
+                .map_err(report_vulkan_result)
+                .attach_printable("failed to get physical device surface capabilities")?
         };
 
         // SAFETY: `self.raw` is a live surface created from the same instance as
@@ -89,7 +87,8 @@ impl VulkanSurface {
         let formats = unsafe {
             self.loader
                 .get_physical_device_surface_formats(device.get_physical(), self.raw)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
+                .map_err(report_vulkan_result)
+                .attach_printable("failed to get physical device surface formats")?
         };
 
         // SAFETY: `self.raw` is a live surface created from the same instance as
@@ -97,7 +96,8 @@ impl VulkanSurface {
         let present_modes = unsafe {
             self.loader
                 .get_physical_device_surface_present_modes(device.get_physical(), self.raw)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
+                .map_err(report_vulkan_result)
+                .attach_printable("failed to get physical device surface present modes")?
         };
 
         let extent = if capabilities.current_extent.width == u32::MAX {
@@ -114,7 +114,7 @@ impl VulkanSurface {
                     && format.color_space == ColorSpaceKHR::SRGB_NONLINEAR
             })
             .or_else(|| formats.first().copied())
-            .ok_or(VulkanSurfaceError::NoSurfaceFormats)?;
+            .ok_or_else(|| Report::new(VulkanSurfaceError::NoSurfaceFormats))?;
 
         let present_mode = (!vsync)
             .then(|| present_modes.iter().copied().find(|mode| *mode == PresentModeKHR::IMMEDIATE))
@@ -146,7 +146,8 @@ impl VulkanBackend {
         let raw = unsafe {
             ash_window::create_surface(entry, instance.get(), display_handle, window_handle, None)
         }
-        .map_err(VulkanSurfaceError::UnexpectedResult)?;
+        .map_err(report_vulkan_result)
+        .attach_printable("failed to create vulkan surface")?;
 
         let loader = ash::khr::surface::Instance::new(entry, instance.get());
 
@@ -156,4 +157,8 @@ impl VulkanBackend {
 
         Ok(surface)
     }
+}
+
+fn report_vulkan_result(result: ash::vk::Result) -> Report<VulkanSurfaceError> {
+    Report::new(VulkanSurfaceError::UnexpectedResult(result))
 }

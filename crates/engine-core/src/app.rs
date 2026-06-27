@@ -1,11 +1,10 @@
 //! Application lifecycle and frame coordination.
 
-use std::error::Error as StdError;
-
 use common::{logging::macros::*, timer::Stopwatch};
 use engine_renderer_api::{
     BoxedRenderer, RenderExtent, RenderWindow, RendererError, RendererFactory,
 };
+use error_stack::{Context, Report};
 use thiserror::Error;
 use winit::{
     application::ApplicationHandler,
@@ -251,14 +250,14 @@ trait ErasedRenderer: std::fmt::Debug {
 #[derive(Debug)]
 struct RendererAdapter<E>
 where
-    E: StdError + Send + Sync + 'static,
+    E: Context,
 {
     inner: BoxedRenderer<E>,
 }
 
 impl<E> RendererAdapter<E>
 where
-    E: StdError + Send + Sync + 'static,
+    E: Context,
 {
     fn new(inner: BoxedRenderer<E>) -> Self {
         Self { inner }
@@ -267,7 +266,7 @@ where
 
 impl<E> ErasedRenderer for RendererAdapter<E>
 where
-    E: StdError + Send + Sync + 'static,
+    E: Context,
 {
     fn prepare_frame(&mut self) -> Result<(), RendererError> {
         self.inner.prepare_frame().map_err(erase_renderer_error)
@@ -320,6 +319,9 @@ where
     }
 }
 
-fn erase_renderer_error(error: impl StdError + Send + Sync + 'static) -> RendererError {
-    Box::new(error)
+fn erase_renderer_error<E>(error: Report<E>) -> RendererError
+where
+    E: Context,
+{
+    error.into()
 }

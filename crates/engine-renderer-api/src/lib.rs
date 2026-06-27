@@ -38,17 +38,17 @@ pub trait RenderWindow: Debug + HasDisplayHandle + HasWindowHandle {
 
 /// Renderer backend operations driven by the application loop.
 pub trait Renderer: Debug {
-    /// Error type returned by renderer operations.
-    type Error: Error + Send + Sync + 'static;
+    /// Error context returned by renderer operations.
+    type Error: error_stack::Context;
 
     /// Prepares renderer-owned state for the next frame.
-    fn prepare_frame(&mut self) -> Result<(), Self::Error>;
+    fn prepare_frame(&mut self) -> error_stack::Result<(), Self::Error>;
 
     /// Renders one frame.
-    fn render(&mut self) -> Result<(), Self::Error>;
+    fn render(&mut self) -> error_stack::Result<(), Self::Error>;
 
     /// Resizes renderer-owned swapchain or framebuffer resources.
-    fn resize(&mut self, extent: RenderExtent) -> Result<(), Self::Error>;
+    fn resize(&mut self, extent: RenderExtent) -> error_stack::Result<(), Self::Error>;
 }
 
 /// Owned renderer trait object with a fixed error type.
@@ -59,14 +59,14 @@ pub type RendererError = Box<dyn Error + Send + Sync + 'static>;
 
 /// Creates renderer instances once a native window exists.
 pub trait RendererFactory: Debug {
-    /// Error type returned by renderer creation and operations.
-    type Error: Error + Send + Sync + 'static;
+    /// Error context returned by renderer creation and operations.
+    type Error: error_stack::Context;
 
     /// Creates a renderer for the supplied native window.
     fn create_renderer(
         &mut self,
         window: &dyn RenderWindow,
-    ) -> Result<BoxedRenderer<Self::Error>, Self::Error>;
+    ) -> error_stack::Result<BoxedRenderer<Self::Error>, Self::Error>;
 }
 
 /// Owned renderer factory trait object with a fixed error type.

@@ -4,36 +4,39 @@ mod surface;
 
 use ash::vk::Extent2D;
 use engine_renderer_api::{HandleError, RenderExtent, RenderWindow};
+use error_stack::{Report, Result, ResultExt};
 use thiserror::Error;
 
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
-pub enum VulkanBackendError {
-    /// Failed to create the vulkan instance
-    /// FIXME: The backend should not propagate low-level vulkan results to the
-    /// frontend.
-    #[error("vulkan result has an error value: [{0:?}] {0}")]
-    UnexpectedResult(ash::vk::Result),
-
+pub(super) enum VulkanBackendError {
     /// Failed to load the vulkan entry
-    #[error("entry load failed")]
+    #[error("failed to load the vulkan entry")]
     EntryLoadFailure,
 
-    /// Failed to load the vulkan entry
-    #[error("display handle error: {0}")]
-    DisplayHandleError(#[from] HandleError),
+    /// Failed to get the display handle.
+    #[error("failed to get display handle")]
+    DisplayHandle,
+
+    /// Failed to get the window handle.
+    #[error("failed to get window handle")]
+    WindowHandle,
 
     /// Vulkan instance operation failed.
-    #[error("vulkan instance error: {0}")]
-    Instance(#[from] instance::VulkanInstanceError),
+    #[error("failed to create vulkan instance")]
+    CreateInstance,
 
     /// Vulkan surface operation failed.
-    #[error("vulkan surface error: {0}")]
-    Surface(#[from] surface::VulkanSurfaceError),
+    #[error("failed to create vulkan surface")]
+    CreateSurface,
 
     /// Vulkan device operation failed.
-    #[error("vulkan device error: {0}")]
-    Device(#[from] device::VulkanDeviceError),
+    #[error("failed to create vulkan logical device")]
+    CreateDevice,
+
+    /// Vulkan surface refresh failed.
+    #[error("failed to refresh vulkan surface details")]
+    RefreshSurface,
 }
 
 pub(super) struct VulkanBackend {
@@ -60,25 +63,41 @@ impl std::fmt::Debug for VulkanBackend {
 
 impl VulkanBackend {
     pub(super) fn new(rw: &dyn RenderWindow, vsync: bool) -> Result<Self, VulkanBackendError> {
-        let display_handle = rw.display_handle()?.as_raw();
-        let window_handle = rw.window_handle()?.as_raw();
+        let display_handle = rw
+            .display_handle()
+            .map_err(|error| {
+                Report::new(VulkanBackendError::DisplayHandle).attach_printable(error.to_string())
+            })?
+            .as_raw();
+        let window_handle = rw
+            .window_handle()
+            .map_err(|error| {
+                Report::new(VulkanBackendError::WindowHandle).attach_printable(error.to_string())
+            })?
+            .as_raw();
 
         // SAFETY: Loading the Vulkan entry only performs dynamic symbol lookup;
         // the owned entry is stored in the backend and outlives all objects
         // created from it.
-        let entry =
-            unsafe { ash::Entry::load() }.map_err(|_| VulkanBackendError::EntryLoadFailure)?;
+        let entry = unsafe { ash::Entry::load() }.map_err(|err| {
+            Report::new(VulkanBackendError::EntryLoadFailure).attach_printable(err.to_string())
+        })?;
 
-        let instance = Self::create_instance(&entry, display_handle)?;
+        let instance = Self::create_instance(&entry, display_handle)
+            .change_context(VulkanBackendError::CreateInstance)?;
 
-        let mut surface = Self::create_surface(&entry, &instance, display_handle, window_handle)?;
+        let mut surface = Self::create_surface(&entry, &instance, display_handle, window_handle)
+            .change_context(VulkanBackendError::CreateSurface)?;
 
-        let device = Self::create_device(&instance, &surface)?;
+        let device = Self::create_device(&instance, &surface)
+            .change_context(VulkanBackendError::CreateDevice)?;
 
         {
             let RenderExtent { width, height } = rw.size();
 
-            surface.refresh(&device, Extent2D { width, height }, vsync)?;
+            surface
+                .refresh(&device, Extent2D { width, height }, vsync)
+                .change_context(VulkanBackendError::RefreshSurface)?;
         }
 
         Ok(Self { device, surface, instance, entry })

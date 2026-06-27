@@ -1,16 +1,17 @@
 mod backend;
 
 use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererFactory};
+use error_stack::{Report, ResultExt};
 use thiserror::Error;
 
-use self::backend::{VulkanBackend, VulkanBackendError};
+use self::backend::VulkanBackend;
 
 /// Errors returned by Vulkan renderer operations.
 #[derive(Debug, Error)]
 pub enum VulkanRendererError {
     /// Vulkan backend operation failed.
-    #[error("vulkan backend error: {0}")]
-    Backend(#[from] VulkanBackendError),
+    #[error("vulkan backend failed")]
+    Backend,
 
     /// Window drawable size is invalid for presentation.
     #[error("window drawable size must be non-zero: {0:?}")]
@@ -35,14 +36,18 @@ pub struct VulkanRendererBuilder {
 
 impl VulkanRendererBuilder {
     /// Builds the renderer for a native presentation window.
-    pub fn build(self, window: &dyn RenderWindow) -> Result<VulkanRenderer, VulkanRendererError> {
+    pub fn build(
+        self,
+        window: &dyn RenderWindow,
+    ) -> error_stack::Result<VulkanRenderer, VulkanRendererError> {
         let extent = window.size();
 
         if extent.is_empty() {
-            return Err(VulkanRendererError::InvalidWindowSize(extent));
+            return Err(Report::new(VulkanRendererError::InvalidWindowSize(extent)));
         }
 
-        let backend = VulkanBackend::new(window, self.vsync)?;
+        let backend =
+            VulkanBackend::new(window, self.vsync).change_context(VulkanRendererError::Backend)?;
 
         VulkanRenderer::new(self.vsync, backend)
     }
@@ -61,7 +66,7 @@ impl VulkanRenderer {
         VulkanRendererBuilder::default()
     }
 
-    fn new(vsync: bool, backend: VulkanBackend) -> Result<Self, VulkanRendererError> {
+    fn new(vsync: bool, backend: VulkanBackend) -> error_stack::Result<Self, VulkanRendererError> {
         Ok(Self { vsync, backend })
     }
 }
@@ -72,7 +77,7 @@ impl RendererFactory for VulkanRendererBuilder {
     fn create_renderer(
         &mut self,
         window: &dyn RenderWindow,
-    ) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
+    ) -> error_stack::Result<BoxedRenderer<Self::Error>, Self::Error> {
         Ok(Box::new((*self).build(window)?))
     }
 }
@@ -80,15 +85,15 @@ impl RendererFactory for VulkanRendererBuilder {
 impl Renderer for VulkanRenderer {
     type Error = VulkanRendererError;
 
-    fn prepare_frame(&mut self) -> Result<(), Self::Error> {
+    fn prepare_frame(&mut self) -> error_stack::Result<(), Self::Error> {
         Ok(())
     }
 
-    fn render(&mut self) -> Result<(), Self::Error> {
+    fn render(&mut self) -> error_stack::Result<(), Self::Error> {
         Ok(())
     }
 
-    fn resize(&mut self, _extent: RenderExtent) -> Result<(), Self::Error> {
+    fn resize(&mut self, _extent: RenderExtent) -> error_stack::Result<(), Self::Error> {
         Ok(())
     }
 }

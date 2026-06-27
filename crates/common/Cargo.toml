@@ -17,6 +17,7 @@ publish = { workspace = true }
 workspace = true
 
 [dependencies]
+error-stack = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

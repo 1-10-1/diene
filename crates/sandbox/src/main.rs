@@ -22,11 +22,25 @@ fn print_error(err: &anyhow::Error) {
     let mut indent = 4;
 
     for cause in chain {
-        let _ = writeln!(buffer, "{:indent$}because: {}", "", local_error_message(cause));
+        let details = format!("{cause:?}");
+
+        if details.contains('\n') {
+            let _ = writeln!(buffer, "{:indent$}because:", "");
+            write_indented(&mut buffer, &details, indent + 4);
+        } else {
+            let _ = writeln!(buffer, "{:indent$}because: {}", "", local_error_message(cause));
+        }
+
         indent += 4;
     }
 
     error!("{buffer}");
+}
+
+fn write_indented(buffer: &mut String, message: &str, indent: usize) {
+    for line in message.lines() {
+        let _ = writeln!(buffer, "{:indent$}{line}", "");
+    }
 }
 
 fn local_error_message(error: &(dyn std::error::Error + 'static)) -> String {

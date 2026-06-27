@@ -9,7 +9,8 @@ use engine_core::app::{
 use engine_renderer_api::{
     BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory,
 };
-use engine_renderer_vulkan::renderer::{VulkanRendererBuilder, VulkanRendererError};
+use engine_renderer_vulkan::renderer::VulkanRendererBuilder;
+use error_stack::ResultExt;
 use thiserror::Error;
 
 /// Errors returned by the public application runtime.
@@ -44,8 +45,8 @@ impl From<ApplicationHostError> for ApplicationError {
 #[non_exhaustive]
 pub enum RendererBackendError {
     /// Vulkan backend operation failed.
-    #[error("vulkan renderer failed: {0}")]
-    Vulkan(#[from] VulkanRendererError),
+    #[error("vulkan renderer failed")]
+    Vulkan,
 }
 
 /// Renderer backend selection mode.
@@ -144,7 +145,7 @@ impl RendererFactory for RendererBackendSelector {
     fn create_renderer(
         &mut self,
         window: &dyn RenderWindow,
-    ) -> Result<BoxedRenderer<Self::Error>, Self::Error> {
+    ) -> error_stack::Result<BoxedRenderer<Self::Error>, Self::Error> {
         let auto = self.renderer_backend == RendererBackend::Auto;
 
         if auto {
@@ -182,30 +183,32 @@ impl<R> RendererErrorAdapter<R> {
 impl<R> Renderer for RendererErrorAdapter<R>
 where
     R: Renderer,
-    R::Error: Into<RendererBackendError>,
 {
     type Error = RendererBackendError;
 
-    fn prepare_frame(&mut self) -> Result<(), Self::Error> {
-        self.inner.prepare_frame().map_err(Into::into)
+    fn prepare_frame(&mut self) -> error_stack::Result<(), Self::Error> {
+        self.inner.prepare_frame().change_context(RendererBackendError::Vulkan)
     }
 
-    fn render(&mut self) -> Result<(), Self::Error> {
-        self.inner.render().map_err(Into::into)
+    fn render(&mut self) -> error_stack::Result<(), Self::Error> {
+        self.inner.render().change_context(RendererBackendError::Vulkan)
     }
 
-    fn resize(&mut self, extent: RenderExtent) -> Result<(), Self::Error> {
-        self.inner.resize(extent).map_err(Into::into)
+    fn resize(&mut self, extent: RenderExtent) -> error_stack::Result<(), Self::Error> {
+        self.inner.resize(extent).change_context(RendererBackendError::Vulkan)
     }
 }
 
 fn create_vulkan_renderer(
     window: &dyn RenderWindow,
     vsync: bool,
-) -> Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
+) -> error_stack::Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
     debug!("creating vulkan renderer");
 
-    let renderer = VulkanRendererBuilder::default().with_vsync(vsync).build(window)?;
+    let renderer = VulkanRendererBuilder::default()
+        .with_vsync(vsync)
+        .build(window)
+        .change_context(RendererBackendError::Vulkan)?;
 
     Ok(Box::new(RendererErrorAdapter::new(renderer)))
 }

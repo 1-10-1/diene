@@ -9,6 +9,7 @@ use ash::{
     vk::{self, DebugUtilsMessageSeverityFlagsEXT, ValidationFeatureEnableEXT},
 };
 use common::logging::macros::*;
+use error_stack::{Report, Result, ResultExt};
 use raw_window_handle::RawDisplayHandle;
 use thiserror::Error;
 
@@ -16,7 +17,7 @@ use super::VulkanBackend;
 
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
-pub enum VulkanInstanceError {
+pub(super) enum VulkanInstanceError {
     /// Vulkan API call returned an error value.
     #[error("vulkan result has an error value: {0}")]
     UnexpectedResult(ash::vk::Result),
@@ -88,13 +89,18 @@ impl VulkanBackend {
         // SAFETY: `entry` was loaded successfully and this call only queries loader-supported
         // instance API version information.
         if let Some(version) = unsafe { entry.try_enumerate_instance_version() }
-            .map_err(VulkanInstanceError::UnexpectedResult)?
+            .map_err(report_vulkan_result)
+            .attach_printable("failed to enumerate supported vulkan instance version")?
         {
             if version < min_api_version {
-                return Err(VulkanInstanceError::InsufficientVersion);
+                return Err(Report::new(VulkanInstanceError::InsufficientVersion)
+                    .attach_printable(format!(
+                        "required api version {min_api_version}, supported api version {version}"
+                    )));
             }
         } else {
-            return Err(VulkanInstanceError::InsufficientVersion);
+            return Err(Report::new(VulkanInstanceError::InsufficientVersion)
+                .attach_printable(format!("required api version {min_api_version}")));
         }
 
         let layer_names = [c"VK_LAYER_KHRONOS_validation"];
@@ -102,7 +108,8 @@ impl VulkanBackend {
             layer_names.iter().map(|raw_name| raw_name.as_ptr()).collect();
 
         let mut extension_names = ash_window::enumerate_required_extensions(display_handle)
-            .map_err(VulkanInstanceError::UnexpectedResult)?
+            .map_err(report_vulkan_result)
+            .attach_printable("failed to enumerate required window-system vulkan extensions")?
             .to_vec();
 
         extension_names.push(debug_utils::NAME.as_ptr());
@@ -143,7 +150,8 @@ impl VulkanBackend {
             // SAFETY: `create_info` points to local data that lives through the
             // call, and no custom allocator is used.
             unsafe { entry.create_instance(&create_info, None) }
-                .map_err(VulkanInstanceError::UnexpectedResult)?
+                .map_err(report_vulkan_result)
+                .attach_printable("failed to create vulkan instance")?
         };
 
         trace!("instance initialized");
@@ -153,7 +161,8 @@ impl VulkanBackend {
         // lives for the duration of the Vulkan call.
         let debug_callback =
             unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }
-                .map_err(VulkanInstanceError::UnexpectedResult)?;
+                .map_err(report_vulkan_result)
+                .attach_printable("failed to create vulkan debug messenger")?;
 
         trace!("debug messenger initialized");
 
@@ -163,6 +172,10 @@ impl VulkanBackend {
             raw,
         })
     }
+}
+
+fn report_vulkan_result(result: ash::vk::Result) -> Report<VulkanInstanceError> {
+    Report::new(VulkanInstanceError::UnexpectedResult(result))
 }
 
 unsafe extern "system" fn vulkan_debug_callback(

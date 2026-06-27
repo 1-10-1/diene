@@ -1,7 +1,7 @@
 #![allow(missing_docs)]
 #![forbid(unsafe_code)]
 
-use common::logging::macros::info;
+use common::logging::macros::*;
 use engine_runtime::Application;
 
 pub fn run() -> anyhow::Result<()> {

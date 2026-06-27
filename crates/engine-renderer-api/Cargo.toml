@@ -17,4 +17,5 @@ publish = { workspace = true }
 workspace = true
 
 [dependencies]
+error-stack = { workspace = true }
 raw-window-handle = { workspace = true }

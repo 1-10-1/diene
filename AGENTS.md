@@ -6,6 +6,9 @@
 - Run `cargo check --workspace` after code changes.
 - `engine_core` must not depend directly on renderer backend details.
 - Public structs/functions need concise Rustdoc.
+- Always use context-mode as much as possible.
+- Always write code that is the most concise and modern. Prefer iterator method chaining
+  unless it's too ugly compared to its simpler counterpart.
 
 ## Commands
 - Use the pinned nightly toolchain from `rust-toolchain.toml`; rustfmt uses unstable options.
