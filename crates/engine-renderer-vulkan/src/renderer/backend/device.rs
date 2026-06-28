@@ -386,10 +386,10 @@ fn pick_physical(
             features_14: features_info.enabled_f14,
         };
 
-        if let Some(cand) = &best_candidate {
-            if score < cand.score {
-                continue;
-            }
+        if let Some(cand) = &best_candidate
+            && score < cand.score
+        {
+            continue;
         }
 
         best_candidate = Some(candidate);
