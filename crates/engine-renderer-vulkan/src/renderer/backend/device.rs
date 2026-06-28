@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashSet,
     ffi::{CStr, CString, c_char},
     fmt::Write,
     ops::Deref,
@@ -407,18 +406,20 @@ fn check_device_extension_support(
     device: vk::PhysicalDevice,
 ) -> Result<bool, VulkanDeviceError> {
     // SAFETY: `device` descends from `inst`, so this is valid.
-    let available_exts: HashSet<&CStr> = unsafe {
+    let available_exts = unsafe {
         inst.enumerate_device_extension_properties(device)
             .map_err(VulkanDeviceError::UnexpectedResult)?
-    }
-    .iter()
-    .map(|ext| unsafe {
-        // SAFETY: Vulkan guarantees `extension_name` is a null-terminated C string.
-        CStr::from_ptr(ext.extension_name.as_ptr())
-    })
-    .collect();
+    };
 
-    Ok(REQUIRED_EXTENSIONS.iter().all(|required| available_exts.contains(*required)))
+    Ok(REQUIRED_EXTENSIONS.iter().all(|required| {
+        available_exts.iter().any(|ext| {
+            // SAFETY: Vulkan guarantees that `ext.extension_name` is a
+            // valid null-terminated string.
+            let available = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+
+            available == *required
+        })
+    }))
 }
 
 fn find_queue_family_indices(

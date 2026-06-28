@@ -92,7 +92,7 @@ checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 [[package]]
 name = "ash"
 version = "0.38.0+1.4.352"
-source = "git+https://github.com/ash-rs/ash?branch=master#a9a1fb17e98a0cde146caada86200d809306200d"
+source = "git+https://github.com/ash-rs/ash?rev=a9a1fb17e98a0cde146caada86200d809306200d#a9a1fb17e98a0cde146caada86200d809306200d"
 dependencies = [
  "libloading",
 ]
@@ -100,7 +100,7 @@ dependencies = [
 [[package]]
 name = "ash-window"
 version = "0.13.0"
-source = "git+https://github.com/ash-rs/ash?branch=master#a9a1fb17e98a0cde146caada86200d809306200d"
+source = "git+https://github.com/ash-rs/ash?rev=a9a1fb17e98a0cde146caada86200d809306200d#a9a1fb17e98a0cde146caada86200d809306200d"
 dependencies = [
  "ash",
  "raw-window-handle",
