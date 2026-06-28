@@ -3,7 +3,7 @@ mod instance;
 mod surface;
 
 use ash::vk::Extent2D;
-use engine_renderer_api::{HandleError, RenderExtent, RenderWindow};
+use engine_renderer_api::{RenderExtent, RenderWindow};
 use error_stack::{Report, Result, ResultExt};
 use thiserror::Error;
 

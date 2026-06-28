@@ -9,7 +9,10 @@ use std::{
 
 use ash::{
     ext::debug_utils,
-    vk::{self, DebugUtilsObjectNameInfoEXT, PhysicalDevice, PhysicalDeviceProperties},
+    vk::{
+        self, DebugUtilsObjectNameInfoEXT, PhysicalDevice, PhysicalDeviceProperties,
+        TaggedStructure,
+    },
 };
 use common::logging::macros::*;
 use error_stack::{Report, Result, ResultExt};
@@ -17,9 +20,15 @@ use thiserror::Error;
 
 use super::VulkanBackend;
 use crate::renderer::backend::{
-    instance::{self, VulkanInstance},
+    instance::{self, ApiVersion, VulkanInstance},
     surface::{self, VulkanSurface},
 };
+
+const REQUIRED_EXTENSIONS: [&CStr; 1] = [
+    vk::KHR_SWAPCHAIN_NAME,
+    // For profiling:
+    // vk::KHR_CALIBRATED_TIMESTAMPS_NAME,
+];
 
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
@@ -35,19 +44,40 @@ pub(super) enum VulkanDeviceError {
 
 pub(super) struct VulkanDevice {
     debug_utils_loader: debug_utils::Device,
-    raw: ash::Device,
+    logical: ash::Device,
     physical: PhysicalDevice,
     properties: PhysicalDeviceProperties,
-    main_queue: vk::Queue,
-    present_queue: vk::Queue,
+    graphics_queue: vk::Queue,
+    compute_queue: vk::Queue,
     transfer_queue: vk::Queue,
+    dedicated_compute: bool,
+    dedicated_transfer: bool,
     #[cfg(debug_assertions)]
     name: CString,
 }
 
+pub(super) struct QueueFamilyIndices {
+    graphics: u32,
+    present: u32,
+    compute: u32,
+    transfer: u32,
+}
+
+struct DeviceCandidate {
+    physical: PhysicalDevice,
+    properties: PhysicalDeviceProperties,
+    queue_families: QueueFamilyIndices,
+    score: u32,
+    features_10: vk::PhysicalDeviceFeatures,
+    features_11: vk::PhysicalDeviceVulkan11Features<'static>,
+    features_12: vk::PhysicalDeviceVulkan12Features<'static>,
+    features_13: vk::PhysicalDeviceVulkan13Features<'static>,
+    features_14: vk::PhysicalDeviceVulkan14Features<'static>,
+}
+
 impl VulkanDevice {
     pub(super) fn get(&self) -> &ash::Device {
-        &self.raw
+        &self.logical
     }
 
     pub(super) fn get_physical(&self) -> PhysicalDevice {
@@ -65,9 +95,9 @@ impl VulkanDevice {
 
         let name_info = DebugUtilsObjectNameInfoEXT::default()
             .object_name(&self.name[..])
-            .object_handle(self.raw.handle());
+            .object_handle(self.logical.handle());
 
-        // SAFETY: `raw` is a live device, `debug_utils_loader` was created for it, and
+        // SAFETY: `self.logical` is a live device, `debug_utils_loader` was created for it, and
         // `name_info` points to `self.name`, which lives throughout the entire
         // lifetime of this struct.
         unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info) }
@@ -80,12 +110,11 @@ impl VulkanDevice {
 
 impl Drop for VulkanDevice {
     fn drop(&mut self) {
-        // SAFETY: `self.raw` is a valid logical device created by `create_device`,
+        // SAFETY: `self.logical` is a valid logical device created by `create_device`,
         // owned exclusively by this RAII wrapper, and destroyed exactly once here.
-        // No custom allocator was used at creation, so `None` is passed again.
         // Future device-owned resources must be destroyed before this wrapper drops.
         unsafe {
-            self.raw.destroy_device(None);
+            self.logical.destroy_device(None);
         }
 
         trace!("device destroyed");
@@ -96,7 +125,7 @@ impl Deref for VulkanDevice {
     type Target = ash::Device;
 
     fn deref(&self) -> &Self::Target {
-        &self.raw
+        &self.logical
     }
 }
 
@@ -114,64 +143,89 @@ impl VulkanBackend {
         surface: &VulkanSurface,
     ) -> Result<VulkanDevice, VulkanDeviceError> {
         let DeviceCandidate {
-            indices: queue_families,
-            device: physical,
-            props: properties,
-            score: _,
+            queue_families,
+            physical,
+            properties,
+            score,
+            features_10,
+            mut features_11,
+            mut features_12,
+            mut features_13,
+            mut features_14,
         } = pick_physical(instance, surface)?;
-
-        let features = vk::PhysicalDeviceFeatures { shader_clip_distance: 1, ..Default::default() };
 
         let priorities = [1.0];
 
-        let queue_create_infos: Vec<vk::DeviceQueueCreateInfo<'_>> =
-            [queue_families.main, queue_families.present, queue_families.transfer]
-                .into_iter()
-                .map(|i| {
-                    vk::DeviceQueueCreateInfo::default()
-                        .queue_family_index(i)
-                        .queue_priorities(&priorities)
-                })
-                .collect();
+        let mut unique_queue_families = Vec::with_capacity(4);
 
-        println!("{queue_create_infos:#?}");
+        for queue_family in [
+            queue_families.graphics,
+            queue_families.present,
+            queue_families.compute,
+            queue_families.transfer,
+        ] {
+            if !unique_queue_families.contains(&queue_family) {
+                unique_queue_families.push(queue_family);
+            }
+        }
+
+        let queue_create_infos: Vec<vk::DeviceQueueCreateInfo<'_>> = unique_queue_families
+            .into_iter()
+            .map(|queue_family| {
+                vk::DeviceQueueCreateInfo::default()
+                    .queue_family_index(queue_family)
+                    .queue_priorities(&priorities)
+            })
+            .collect();
 
         let req_exts =
             REQUIRED_EXTENSIONS.iter().map(|ext| ext.as_ptr()).collect::<Vec<*const c_char>>();
 
-        let device_create_info = vk::DeviceCreateInfo::default()
-            .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&req_exts)
-            .enabled_features(&features);
+        let mut features = vk::PhysicalDeviceFeatures2::default()
+            .features(features_10)
+            .push(&mut features_11)
+            .push(&mut features_12)
+            .push(&mut features_13)
+            .push(&mut features_14);
 
-        // SAFETY: `pdevice` and `queue_family_index` were selected from `instance`,
-        // and `device_create_info` only references local data that lives through this call.
-        let raw = unsafe { instance.create_device(physical, &device_create_info, None) }
+        let mut device_create_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_extension_names(&req_exts);
+
+        // SAFETY: All members of `features` chain are valid, and feature structs outlive
+        // `create_device`.
+        device_create_info = unsafe { device_create_info.extend(&mut features) };
+
+        // SAFETY: `physical` was selected from `instance`, and `device_create_info` only references
+        // local data that lives through this call.
+        let logical = unsafe { instance.create_device(physical, &device_create_info, None) }
             .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
             .attach_printable("failed to create vulkan logical device")?;
 
-        let debug_utils_loader = debug_utils::Device::new(instance, &raw);
+        let debug_utils_loader = debug_utils::Device::load(instance, &logical);
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
-        let main_queue = unsafe { raw.get_device_queue(queue_families.main, 0) };
+        let graphics_queue = unsafe { logical.get_device_queue(queue_families.graphics, 0) };
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
-        let transfer_queue = unsafe { raw.get_device_queue(queue_families.transfer, 0) };
+        let compute_queue = unsafe { logical.get_device_queue(queue_families.compute, 0) };
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
-        let present_queue = unsafe { raw.get_device_queue(queue_families.present, 0) };
+        let transfer_queue = unsafe { logical.get_device_queue(queue_families.transfer, 0) };
 
         let mut device = VulkanDevice {
             debug_utils_loader,
-            raw,
+            logical,
             physical,
             properties,
-            main_queue,
+            graphics_queue,
+            compute_queue,
             transfer_queue,
-            present_queue,
+            dedicated_compute: queue_families.compute != queue_families.graphics,
+            dedicated_transfer: queue_families.transfer != queue_families.graphics,
             #[cfg(debug_assertions)]
             name: c"Untitled".to_owned(),
         };
@@ -179,21 +233,30 @@ impl VulkanBackend {
         #[cfg(debug_assertions)]
         device.set_name(c"Logical Device".to_owned())?;
 
+        let queue_sharing_label = |q1: u32, q2: u32| {
+            if q1 == q2 {
+                "aliased"
+            } else {
+                "dedicated"
+            }
+        };
+
+        // SAFETY: Vulkan guarantees that `properties.device_name` is a
+        // null-terminated UTF-8 string.
+        let physical_name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+
+        debug!(
+            "Created logical device with physical device {physical_name} (Score: \
+             {score})\nCompute queue: {}\nTransfer queue: {}\nPresent queue: {}",
+            queue_sharing_label(queue_families.graphics, queue_families.compute),
+            queue_sharing_label(queue_families.graphics, queue_families.transfer),
+            queue_sharing_label(queue_families.graphics, queue_families.present),
+        );
+
         Ok(device)
     }
-}
-
-pub(super) struct QueueFamilyIndices {
-    main: u32,
-    present: u32,
-    transfer: u32,
-}
-
-struct DeviceCandidate {
-    device: PhysicalDevice,
-    props: PhysicalDeviceProperties,
-    indices: QueueFamilyIndices,
-    score: u32,
 }
 
 fn pick_physical(
@@ -208,119 +271,136 @@ fn pick_physical(
 
     let mut best_candidate: Option<DeviceCandidate> = None;
 
-    for device in pdevices {
+    for physical in pdevices {
         let mut props2 = vk::PhysicalDeviceProperties2::default();
 
         // SAFETY: `device` descends from `inst`, so this is valid.
-        unsafe { inst.get_physical_device_properties2(device, &mut props2) };
+        unsafe { inst.get_physical_device_properties2(physical, &mut props2) };
 
-        let props = props2.properties;
+        let properties = props2.properties;
 
-        let mut vk11_features = vk::PhysicalDeviceVulkan11Features::default();
-        let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default();
+        // SAFETY: Vulkan guarantees that `props.device_name` is a
+        // null-terminated UTF-8 string.
+        let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
 
-        let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default();
+        let mut failure_log_buf = String::new();
 
-        let mut extended_dynamic_state_features =
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT::default();
+        let _ = writeln!(
+            failure_log_buf,
+            "Graphics card {name} was rejected due to the following failed conditions:"
+        );
 
-        let mut shader_draw_parameters_features =
-            vk::PhysicalDeviceShaderDrawParametersFeatures::default();
+        let api_version: ApiVersion = properties.api_version.into();
 
-        let mut features = vk::PhysicalDeviceFeatures2::default()
-            .push_next(&mut vk11_features)
-            .push_next(&mut vk12_features)
-            .push_next(&mut vk13_features)
-            .push_next(&mut extended_dynamic_state_features)
-            .push_next(&mut shader_draw_parameters_features);
+        if api_version < instance::MIN_API_VERSION {
+            let _ = writeln!(
+                failure_log_buf,
+                "\t- Minimum API version not supported (Required {}, found {api_version})",
+                instance::MIN_API_VERSION
+            );
 
-        // SAFETY: `device` descends from `inst`, so this is valid.
-        unsafe { inst.get_physical_device_features2(device, &mut features) };
+            trace!("{failure_log_buf}");
+
+            continue;
+        }
+
+        let mut queried_features_10 = vk::PhysicalDeviceFeatures::default();
+        let mut queried_features_11 = vk::PhysicalDeviceVulkan11Features::default();
+        let mut queried_features_12 = vk::PhysicalDeviceVulkan12Features::default();
+        let mut queried_features_13 = vk::PhysicalDeviceVulkan13Features::default();
+        let mut queried_features_14 = vk::PhysicalDeviceVulkan14Features::default();
 
         {
-            let mut conds_met = true;
+            let mut features = vk::PhysicalDeviceFeatures2::default()
+                .features(queried_features_10)
+                .push(&mut queried_features_11)
+                .push(&mut queried_features_12)
+                .push(&mut queried_features_13)
+                .push(&mut queried_features_14);
 
-            // SAFETY: Vulkan guarantees that `props.device_name` is a
-            // null-terminated UTF-8 string.
-            let name = unsafe { CStr::from_ptr(props.device_name.as_ptr()) }
-                .to_string_lossy()
-                .into_owned();
+            // SAFETY: `device` descends from `inst`, so this is valid.
+            unsafe { inst.get_physical_device_features2(physical, &mut features) };
 
-            let mut failure_log_buf = String::new();
+            queried_features_10 = features.features;
 
-            #[allow(clippy::unwrap_used)]
-            writeln!(
-                failure_log_buf,
-                "Graphics card {name} was rejected due to the following failed conditions:"
-            )
-            .unwrap();
-
-            let Some(queue_family_indices) = find_queue_family_indices(inst, device, surf)
-                .attach_printable("failed to query queue family indices")?
-            else {
-                #[allow(clippy::unwrap_used)]
-                writeln!(failure_log_buf, "\tNecessary queues present").unwrap();
-
-                continue;
-            };
-
-            for (cond, met) in get_feature_requirements(
-                &features.features,
-                &vk11_features,
-                &vk12_features,
-                &vk13_features,
-                &extended_dynamic_state_features,
-                &shader_draw_parameters_features,
-            )
-            .into_iter()
-            .chain(vec![(
-                "Necessary extensions supported",
-                check_device_extension_support(inst, device)?,
-            )]) {
-                if !met {
-                    conds_met = false;
-
-                    #[allow(clippy::unwrap_used)]
-                    writeln!(failure_log_buf, "\t- {cond}").unwrap();
-                }
-            }
-
-            if !conds_met {
-                trace!("{failure_log_buf}");
-                continue;
-            }
-
-            let mut score = 0;
-
-            if props.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
-                score += 1000;
-            }
-
-            score += props.limits.max_image_dimension2_d;
-
-            let candidate = DeviceCandidate { score, device, props, indices: queue_family_indices };
-
-            if let Some(cand) = &best_candidate {
-                if score < cand.score {
-                    continue;
-                }
-            }
-
-            best_candidate = Some(candidate);
+            queried_features_11.p_next = core::ptr::null_mut();
+            queried_features_12.p_next = core::ptr::null_mut();
+            queried_features_13.p_next = core::ptr::null_mut();
+            queried_features_14.p_next = core::ptr::null_mut();
         }
+
+        let mut conds_met = true;
+
+        let Some(queue_families) = find_queue_family_indices(inst, physical, surf)
+            .attach_printable("failed to query queue family indices")?
+        else {
+            let _ = writeln!(failure_log_buf, "\t- Necessary queues absent");
+
+            trace!("{failure_log_buf}");
+
+            continue;
+        };
+
+        let features_info = check_and_enable_features(
+            &queried_features_10,
+            &queried_features_11,
+            &queried_features_12,
+            &queried_features_13,
+            &queried_features_14,
+        );
+
+        for (cond, met) in features_info.availability.into_iter().chain(vec![(
+            "Necessary extensions supported",
+            check_device_extension_support(inst, physical)?,
+        )]) {
+            if !met {
+                conds_met = false;
+
+                let _ = writeln!(failure_log_buf, "\t- {cond}");
+            }
+        }
+
+        if !conds_met {
+            trace!("{failure_log_buf}");
+            continue;
+        }
+
+        let mut score = 0;
+
+        if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
+            score += 1000;
+        }
+
+        score += properties.limits.max_image_dimension2_d;
+
+        let candidate = DeviceCandidate {
+            physical,
+            properties,
+            queue_families,
+            score,
+            features_10: features_info.enabled_f10,
+            features_11: features_info.enabled_f11,
+            features_12: features_info.enabled_f12,
+            features_13: features_info.enabled_f13,
+            features_14: features_info.enabled_f14,
+        };
+
+        if let Some(cand) = &best_candidate {
+            if score < cand.score {
+                continue;
+            }
+        }
+
+        best_candidate = Some(candidate);
     }
 
     best_candidate.ok_or_else(|| {
-        Report::new(VulkanDeviceError::UnexpectedResult(vk::Result::ERROR_INITIALIZATION_FAILED))
+        Report::new(VulkanDeviceError::NoSuitablePhysicalDevice)
             .attach_printable("no suitable physical device was found")
     })
 }
-
-const REQUIRED_EXTENSIONS: [&CStr; 1] = [
-    vk::KHR_SWAPCHAIN_NAME,
-    // For profiling:
-    // vk::KHR_CALIBRATED_TIMESTAMPS_NAME
-];
 
 fn check_device_extension_support(
     inst: &instance::VulkanInstance,
@@ -346,11 +426,14 @@ fn find_queue_family_indices(
     device: PhysicalDevice,
     surf: &surface::VulkanSurface,
 ) -> Result<Option<QueueFamilyIndices>, VulkanDeviceError> {
-    let main_flags = vk::QueueFlags::GRAPHICS | vk::QueueFlags::COMPUTE;
-
-    let mut main: Option<u32> = None;
+    let mut graphics: Option<u32> = None;
+    let mut graphics_present: Option<u32> = None;
     let mut present: Option<u32> = None;
-    let mut transfer: Option<u32> = None;
+    let mut compute: Option<u32> = None;
+    let mut compute_is_dedicated = false;
+    let mut transfer_dedicated: Option<u32> = None;
+    let mut transfer_non_graphics: Option<u32> = None;
+    let mut transfer_any: Option<u32> = None;
 
     // SAFETY: `device` came from `inst`, so querying its queue families against
     // the same instance is valid.
@@ -361,83 +444,158 @@ fn find_queue_family_indices(
         let index = index as u32;
 
         let flags = queue_family.queue_flags;
+        let has_graphics = flags.contains(vk::QueueFlags::GRAPHICS);
+        let has_compute = flags.contains(vk::QueueFlags::COMPUTE);
+        let has_transfer = flags.contains(vk::QueueFlags::TRANSFER);
 
-        if flags.contains(main_flags) {
-            main.get_or_insert(index);
+        if has_graphics {
+            graphics.get_or_insert(index);
         }
 
-        if flags.contains(vk::QueueFlags::TRANSFER) && !flags.intersects(main_flags) {
-            transfer.get_or_insert(index);
+        if has_compute {
+            let dedicated = !has_graphics;
+
+            if compute.is_none() || (dedicated && !compute_is_dedicated) {
+                compute = Some(index);
+                compute_is_dedicated = dedicated;
+            }
+        }
+
+        if has_transfer {
+            transfer_any.get_or_insert(index);
+
+            if !has_graphics {
+                transfer_non_graphics.get_or_insert(index);
+            }
+
+            if !has_graphics && !has_compute {
+                transfer_dedicated.get_or_insert(index);
+            }
         }
 
         // SAFETY: `device` came from `inst`, `surf` was created for the same
         // instance, and `index` comes from this physical device's queue families.
-        if unsafe {
+        let supports_present = unsafe {
             surf.get_loader().get_physical_device_surface_support(device, index, surf.get())
         }
         .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
-        .attach_printable("failed to query physical device surface support")?
-            && (present.is_none() || Some(index) == main)
-        {
-            present = Some(index);
+        .attach_printable("failed to query physical device surface support")?;
+
+        if supports_present {
+            present.get_or_insert(index);
+
+            if has_graphics {
+                graphics_present.get_or_insert(index);
+            }
         }
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::as_conversions)]
-    let transfer = transfer
-        .or_else(|| {
-            qfs.iter()
-                .position(|queue_family| {
-                    queue_family.queue_flags.contains(vk::QueueFlags::TRANSFER)
-                })
-                .map(|index| index as u32)
-        })
-        .or(main);
+    let graphics = graphics_present.or(graphics);
+    let present = graphics_present.or(present);
 
-    match (main, present, transfer) {
-        (Some(main), Some(present), Some(transfer)) if present == main => {
-            Ok(Some(QueueFamilyIndices { main, present, transfer }))
+    let transfer =
+        transfer_dedicated.or(transfer_non_graphics).or(transfer_any).or(compute).or(graphics);
+
+    // NOTE: We're currently forcing graphics == present here.
+    Ok(match (graphics, present, compute, transfer) {
+        (Some(graphics), Some(present), Some(compute), Some(transfer)) if graphics == present => {
+            Some(QueueFamilyIndices { graphics, present, compute, transfer })
         }
-        _ => Ok(None),
-    }
+        _ => None,
+    })
 }
 
-fn get_feature_requirements(
-    f10: &vk::PhysicalDeviceFeatures,
-    _f11: &vk::PhysicalDeviceVulkan11Features<'_>,
-    f12: &vk::PhysicalDeviceVulkan12Features<'_>,
-    f13: &vk::PhysicalDeviceVulkan13Features<'_>,
-    ds: &vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT<'_>,
-    sdp: &vk::PhysicalDeviceShaderDrawParametersFeatures<'_>,
-) -> Vec<(&'static str, bool)> {
-    vec![
-        ("Geometry shader availability", f10.geometry_shader),
-        ("Anisotropy availability", f10.sampler_anisotropy),
-        ("Sample rate shading availability", f10.sample_rate_shading),
-        ("Multi-draw indirect availability", f10.multi_draw_indirect),
-        ("Non-solid fill mode availability", f10.fill_mode_non_solid),
-        ("Vertex pipeline stores and atomics availability", f10.vertex_pipeline_stores_and_atomics),
-        ("Fragment stores and atomics availability", f10.fragment_stores_and_atomics),
-        ("Storage image multisample availability", f10.shader_storage_image_multisample),
-        ("64-bit integer shader support availability", f10.shader_int64),
-        ("8-bit storage buffer access availability", f12.storage_buffer8_bit_access),
-        ("Descriptor indexing availability", f12.descriptor_indexing),
-        (
-            "Non-uniform sampled image array indexing availability",
-            f12.shader_sampled_image_array_non_uniform_indexing,
-        ),
-        ("Partially bound descriptor binding availability", f12.descriptor_binding_partially_bound),
-        ("Runtime descriptor array availability", f12.runtime_descriptor_array),
-        ("Timeline semaphore availability", f12.timeline_semaphore),
-        ("Buffer device address availability", f12.buffer_device_address),
-        ("Vulkan memory model availability", f12.vulkan_memory_model),
-        ("Vulkan memory model device scope availability", f12.vulkan_memory_model_device_scope),
-        ("Synchronization2 availability", f13.synchronization2),
-        ("Dynamic rendering availability", f13.dynamic_rendering),
-        ("Extended dynamic state availability", ds.extended_dynamic_state),
-        ("Shader draw parameters availability", sdp.shader_draw_parameters),
-    ]
-    .into_iter()
-    .map(|(s, b)| (s, b != 0))
-    .collect()
+#[derive(Default)]
+struct FeaturesInfo {
+    availability: Vec<(&'static str, bool)>,
+    enabled_f10: vk::PhysicalDeviceFeatures,
+    enabled_f11: vk::PhysicalDeviceVulkan11Features<'static>,
+    enabled_f12: vk::PhysicalDeviceVulkan12Features<'static>,
+    enabled_f13: vk::PhysicalDeviceVulkan13Features<'static>,
+    enabled_f14: vk::PhysicalDeviceVulkan14Features<'static>,
+}
+
+macro_rules! require_features {
+    (
+        $availability:ident;
+        $(
+            $supported:ident => $enabled:ident {
+                $(
+                    $field:ident => $label:literal
+                ),* $(,)?
+            }
+        )*
+    ) => {
+        $(
+            $(
+                let available = $supported.$field != vk::FALSE;
+                $enabled.$field = if available { vk::TRUE } else { vk::FALSE };
+                $availability.push(($label, available));
+            )*
+        )*
+    };
+}
+
+fn check_and_enable_features(
+    supported_10: &vk::PhysicalDeviceFeatures,
+    supported_11: &vk::PhysicalDeviceVulkan11Features<'_>,
+    supported_12: &vk::PhysicalDeviceVulkan12Features<'_>,
+    supported_13: &vk::PhysicalDeviceVulkan13Features<'_>,
+    supported_14: &vk::PhysicalDeviceVulkan14Features<'_>,
+) -> FeaturesInfo {
+    let mut availability = Vec::new();
+
+    let mut enabled_10 = vk::PhysicalDeviceFeatures::default();
+    let mut enabled_11 = vk::PhysicalDeviceVulkan11Features::default();
+    let mut enabled_12 = vk::PhysicalDeviceVulkan12Features::default();
+    let mut enabled_13 = vk::PhysicalDeviceVulkan13Features::default();
+    let mut enabled_14 = vk::PhysicalDeviceVulkan14Features::default();
+
+    require_features!(availability;
+        supported_10 => enabled_10 {
+            geometry_shader => "Geometry shader availability",
+            sampler_anisotropy => "Anisotropy availability",
+            sample_rate_shading => "Sample rate shading availability",
+            multi_draw_indirect => "Multi-draw indirect availability",
+            fill_mode_non_solid => "Non-solid fill mode availability",
+            vertex_pipeline_stores_and_atomics => "Vertex pipeline stores and atomics availability",
+            fragment_stores_and_atomics => "Fragment stores and atomics availability",
+            shader_storage_image_multisample => "Storage image multisample availability",
+            shader_int64 => "64-bit integer shader support availability",
+        }
+
+        supported_11 => enabled_11 {
+            shader_draw_parameters => "Shader draw parameters availability",
+        }
+
+        supported_12 => enabled_12 {
+            storage_buffer8_bit_access => "8-bit storage buffer access availability",
+            descriptor_indexing => "Descriptor indexing availability",
+            shader_sampled_image_array_non_uniform_indexing => "Non-uniform sampled image array indexing availability",
+            descriptor_binding_partially_bound => "Partially bound descriptor binding availability",
+            runtime_descriptor_array => "Runtime descriptor array availability",
+            timeline_semaphore => "Timeline semaphore availability",
+            buffer_device_address => "Buffer device address availability",
+            vulkan_memory_model => "Vulkan memory model availability",
+            vulkan_memory_model_device_scope => "Vulkan memory model device scope availability",
+        }
+
+        supported_13 => enabled_13 {
+            synchronization2 => "Synchronization2 availability",
+            dynamic_rendering => "Dynamic rendering availability",
+        }
+
+        supported_14 => enabled_14 {
+            maintenance5 => "Maintenance5 availability"
+        }
+    );
+
+    FeaturesInfo {
+        availability,
+        enabled_f10: enabled_10,
+        enabled_f11: enabled_11,
+        enabled_f12: enabled_12,
+        enabled_f13: enabled_13,
+        enabled_f14: enabled_14,
+    }
 }

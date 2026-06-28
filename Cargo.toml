@@ -30,14 +30,14 @@ engine-renderer-vulkan = { package = "diene-engine-renderer-vulkan", path = "cra
 engine-runtime = { package = "diene-engine-runtime", path = "crates/engine-runtime", version = "0.1.0" }
 
 anyhow = "1"
-ash = "0.38.0"
-ash-window = "0.13.0"
 error-stack = "0.5"
-raw-window-handle = { version = "0.6", features = ["std"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
+ash = { git = "https://github.com/ash-rs/ash", branch = "master" }
+ash-window = { git = "https://github.com/ash-rs/ash", branch = "master", package = "ash-window" }
+raw-window-handle = { version = "0.6", features = ["std"] }
 winit = "0.30"
 
 [workspace.lints.rust]

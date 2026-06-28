@@ -144,12 +144,14 @@ impl VulkanBackend {
         // SAFETY: The raw display/window handles come from the live winit window,
         // and `instance` was created with the required platform surface extensions.
         let raw = unsafe {
-            ash_window::create_surface(entry, instance.get(), display_handle, window_handle, None)
+            ash_window::SurfaceFactory::new(entry, instance.get(), display_handle)
+                .map_err(VulkanSurfaceError::UnexpectedResult)?
+                .create_surface(window_handle, None)
         }
         .map_err(report_vulkan_result)
         .attach_printable("failed to create vulkan surface")?;
 
-        let loader = ash::khr::surface::Instance::new(entry, instance.get());
+        let loader = ash::khr::surface::Instance::load(entry, instance.get());
 
         let surface = VulkanSurface { raw, loader, details: None };
 

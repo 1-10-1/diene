@@ -153,7 +153,7 @@ impl RendererFactory for RendererBackendSelector {
         }
 
         info!(
-            "selecting renderer backend {:?}{}",
+            "selected renderer backend {:?}{}",
             self.renderer_backend,
             if auto {
                 " (auto)"
@@ -203,8 +203,6 @@ fn create_vulkan_renderer(
     window: &dyn RenderWindow,
     vsync: bool,
 ) -> error_stack::Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
-    debug!("creating vulkan renderer");
-
     let renderer = VulkanRendererBuilder::default()
         .with_vsync(vsync)
         .build(window)
