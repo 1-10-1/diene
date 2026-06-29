@@ -47,15 +47,18 @@ pub(super) struct VulkanDevice {
     transfer_queue: vk::Queue,
     dedicated_compute: bool,
     dedicated_transfer: bool,
+    queue_families: QueueFamilyIndices,
     #[cfg(debug_assertions)]
     name: CString,
 }
 
+#[derive(Clone)]
 pub(super) struct QueueFamilyIndices {
-    graphics: u32,
-    present: u32,
-    compute: u32,
-    transfer: u32,
+    pub(super) graphics: u32,
+    // NOTE: This field is currently dead. I decided to enforce graphics == present.
+    pub(super) present: u32,
+    pub(super) compute: u32,
+    pub(super) transfer: u32,
 }
 
 struct DeviceCandidate {
@@ -81,6 +84,10 @@ impl VulkanDevice {
     #[cfg(debug_assertions)]
     pub(super) fn get_name(&self) -> &CString {
         &self.name
+    }
+
+    pub(super) fn get_queue_families(&self) -> &QueueFamilyIndices {
+        &self.queue_families
     }
 
     #[cfg(debug_assertions)]
@@ -208,6 +215,7 @@ impl VulkanBackend {
             dedicated_transfer: queue_families.transfer != queue_families.graphics,
             #[cfg(debug_assertions)]
             name: c"Untitled".to_owned(),
+            queue_families: queue_families.clone(),
         };
 
         #[cfg(debug_assertions)]

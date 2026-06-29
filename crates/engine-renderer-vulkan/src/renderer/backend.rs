@@ -1,3 +1,5 @@
+mod allocator;
+mod command;
 mod device;
 mod instance;
 mod surface;
@@ -5,7 +7,7 @@ mod swapchain;
 
 use ash::vk::Extent2D;
 use engine_renderer_api::{RenderExtent, RenderWindow};
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use thiserror::Error;
 
 /// Errors returned by Vulkan backend operations.
@@ -24,44 +26,43 @@ pub(super) enum VulkanBackendError {
     WindowHandle,
 
     /// Vulkan instance operation failed.
-    #[error("failed to create vulkan instance")]
+    #[error("instance operation failed")]
     InstanceOperation,
 
     /// Vulkan surface operation failed.
-    #[error("failed to create vulkan surface")]
+    #[error("surface operation failed")]
     SurfaceOperation,
 
     /// Vulkan device operation failed.
-    #[error("failed to create vulkan logical device")]
+    #[error("logical  operation faileddevice")]
     DeviceOperation,
 
     /// Vulkan swapchain operation failed.
-    #[error("failed to create vulkan swapchain")]
+    #[error("swapchain operation failed")]
     SwapchainOperation,
+
+    /// Vulkan swapchain operation failed.
+    #[error("swapchain operation failed")]
+    AllocatorOperation,
+
+    /// Vulkan command operation failed.
+    #[error("command operation failed")]
+    CommandOperation,
 
     /// Vulkan surface refresh failed.
     #[error("failed to refresh vulkan surface details")]
     RefreshSurface,
 }
 
+#[allow(dead_code)]
 pub(super) struct VulkanBackend {
-    #[allow(dead_code)]
+    command: command::VulkanCommand,
+    allocator: allocator::VulkanAllocator,
     swapchain: swapchain::VulkanSwapchain,
-
-    #[allow(dead_code)]
     surface_config: surface::SurfaceConfig,
-
-    #[allow(dead_code)]
     device: device::VulkanDevice,
-
-    #[allow(dead_code)]
     surface: surface::VulkanSurface,
-
-    #[allow(dead_code)]
     instance: instance::VulkanInstance,
-
-    // Held for RAII and loader lifetime; Vulkan objects are created from this entry.
-    #[allow(dead_code)]
     entry: ash::Entry,
 }
 
@@ -73,7 +74,10 @@ impl std::fmt::Debug for VulkanBackend {
 }
 
 impl VulkanBackend {
-    pub(super) fn new(rw: &dyn RenderWindow, vsync: bool) -> Result<Self, VulkanBackendError> {
+    pub(super) fn new(
+        rw: &dyn RenderWindow,
+        vsync: bool,
+    ) -> error_stack::Result<Self, VulkanBackendError> {
         let display_handle = rw
             .display_handle()
             .map_err(|error| {
@@ -115,13 +119,12 @@ impl VulkanBackend {
         let swapchain = Self::create_swapchain(&instance, &device, &surface, &surface_config)
             .change_context(VulkanBackendError::SwapchainOperation)?;
 
-        // FIXME: vk_mem uses 0.38 :( what to do? fork maybe?
-        // vk_mem::Allocator::new(AllocatorCreateInfo::new(
-        //     instance.get(),
-        //     device.get(),
-        //     device.get_physical(),
-        // ));
+        let allocator = allocator::VulkanAllocator::new(&instance, &device)
+            .change_context(VulkanBackendError::AllocatorOperation)?;
 
-        Ok(Self { swapchain, surface_config, device, surface, instance, entry })
+        let command = command::VulkanCommand::new(&device)
+            .change_context(VulkanBackendError::CommandOperation)?;
+
+        Ok(Self { command, allocator, swapchain, surface_config, device, surface, instance, entry })
     }
 }
