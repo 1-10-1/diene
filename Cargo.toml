@@ -14,7 +14,7 @@ default-members = ["crates/sandbox"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.98"
+rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/1-10-1/diene"
 homepage = "https://github.com/1-10-1/diene"
@@ -30,14 +30,15 @@ engine-renderer-vulkan = { package = "diene-engine-renderer-vulkan", path = "cra
 engine-runtime = { package = "diene-engine-runtime", path = "crates/engine-runtime", version = "0.1.0" }
 
 anyhow = "1"
+ash = "0.38.0"
+ash-window = "0.13.0"
+vk-mem = "0.5.0"
 error-stack = "0.5"
+raw-window-handle = { version = "0.6", features = ["std"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = { version = "0.2.5", features = ["parking_lot"] }
-ash = { version = "0.38.0", git = "https://github.com/ash-rs/ash", rev = "a9a1fb17e98a0cde146caada86200d809306200d" }
-ash-window = { version = "0.13.0", git = "https://github.com/ash-rs/ash", rev = "a9a1fb17e98a0cde146caada86200d809306200d", package = "ash-window" }
-raw-window-handle = { version = "0.6", features = ["std"] }
 winit = "0.30"
 
 [workspace.lints.rust]

@@ -3,18 +3,14 @@
 use std::{
     ffi::{CStr, CString, c_char},
     fmt::Write,
-    ops::Deref,
 };
 
 use ash::{
     ext::debug_utils,
-    vk::{
-        self, DebugUtilsObjectNameInfoEXT, PhysicalDevice, PhysicalDeviceProperties,
-        TaggedStructure,
-    },
+    vk::{self, DebugUtilsObjectNameInfoEXT, PhysicalDevice, PhysicalDeviceProperties},
 };
 use common::logging::macros::*;
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use thiserror::Error;
 
 use super::VulkanBackend;
@@ -71,7 +67,6 @@ struct DeviceCandidate {
     features_11: vk::PhysicalDeviceVulkan11Features<'static>,
     features_12: vk::PhysicalDeviceVulkan12Features<'static>,
     features_13: vk::PhysicalDeviceVulkan13Features<'static>,
-    features_14: vk::PhysicalDeviceVulkan14Features<'static>,
 }
 
 impl VulkanDevice {
@@ -89,19 +84,18 @@ impl VulkanDevice {
     }
 
     #[cfg(debug_assertions)]
-    pub(super) fn set_name(&mut self, name: CString) -> Result<(), VulkanDeviceError> {
-        self.name = name;
-
-        let name_info = DebugUtilsObjectNameInfoEXT::default()
-            .object_name(&self.name[..])
-            .object_handle(self.logical.handle());
+    pub(super) fn set_name<T: vk::Handle>(
+        &self,
+        name: &CString,
+        handle: T,
+    ) -> core::result::Result<(), vk::Result> {
+        let name_info =
+            DebugUtilsObjectNameInfoEXT::default().object_name(name).object_handle(handle);
 
         // SAFETY: `self.logical` is a live device, `debug_utils_loader` was created for it, and
         // `name_info` points to `self.name`, which lives throughout the entire
         // lifetime of this struct.
-        unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info) }
-            .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
-            .attach_printable("failed to set logical device debug name")?;
+        unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info)? };
 
         Ok(())
     }
@@ -120,14 +114,6 @@ impl Drop for VulkanDevice {
     }
 }
 
-impl Deref for VulkanDevice {
-    type Target = ash::Device;
-
-    fn deref(&self) -> &Self::Target {
-        &self.logical
-    }
-}
-
 impl std::fmt::Debug for VulkanDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: Use debug names here
@@ -140,7 +126,7 @@ impl VulkanBackend {
     pub(super) fn create_device(
         instance: &VulkanInstance,
         surface: &VulkanSurface,
-    ) -> Result<VulkanDevice, VulkanDeviceError> {
+    ) -> error_stack::Result<VulkanDevice, VulkanDeviceError> {
         let DeviceCandidate {
             queue_families,
             physical,
@@ -150,7 +136,6 @@ impl VulkanBackend {
             mut features_11,
             mut features_12,
             mut features_13,
-            mut features_14,
         } = pick_physical(instance, surface)?;
 
         let priorities = [1.0];
@@ -182,26 +167,22 @@ impl VulkanBackend {
 
         let mut features = vk::PhysicalDeviceFeatures2::default()
             .features(features_10)
-            .push(&mut features_11)
-            .push(&mut features_12)
-            .push(&mut features_13)
-            .push(&mut features_14);
+            .push_next(&mut features_11)
+            .push_next(&mut features_12)
+            .push_next(&mut features_13);
 
-        let mut device_create_info = vk::DeviceCreateInfo::default()
+        let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&req_exts);
-
-        // SAFETY: All members of `features` chain are valid, and feature structs outlive
-        // `create_device`.
-        device_create_info = unsafe { device_create_info.extend(&mut features) };
+            .enabled_extension_names(&req_exts)
+            .push_next(&mut features);
 
         // SAFETY: `physical` was selected from `instance`, and `device_create_info` only references
         // local data that lives through this call.
-        let logical = unsafe { instance.create_device(physical, &device_create_info, None) }
+        let logical = unsafe { instance.get().create_device(physical, &device_create_info, None) }
             .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
             .attach_printable("failed to create vulkan logical device")?;
 
-        let debug_utils_loader = debug_utils::Device::load(instance, &logical);
+        let debug_utils_loader = debug_utils::Device::new(instance.get(), &logical);
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
@@ -215,7 +196,7 @@ impl VulkanBackend {
         // succeeded with the given queue create infos.
         let transfer_queue = unsafe { logical.get_device_queue(queue_families.transfer, 0) };
 
-        let mut device = VulkanDevice {
+        let device = VulkanDevice {
             debug_utils_loader,
             logical,
             physical,
@@ -230,7 +211,9 @@ impl VulkanBackend {
         };
 
         #[cfg(debug_assertions)]
-        device.set_name(c"Logical Device".to_owned())?;
+        device
+            .set_name(&c"Logical Device".to_owned(), device.logical.handle())
+            .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))?;
 
         let queue_sharing_label = |q1: u32, q2: u32| {
             if q1 == q2 {
@@ -247,7 +230,7 @@ impl VulkanBackend {
             .into_owned();
 
         debug!(
-            "Created logical device with physical device {physical_name} (Score: \
+            "Created logical device with physical device {physical_name} (score: \
              {score})\nCompute queue: {}\nTransfer queue: {}\nPresent queue: {}",
             queue_sharing_label(queue_families.graphics, queue_families.compute),
             queue_sharing_label(queue_families.graphics, queue_families.transfer),
@@ -261,10 +244,10 @@ impl VulkanBackend {
 fn pick_physical(
     inst: &instance::VulkanInstance,
     surf: &surface::VulkanSurface,
-) -> Result<DeviceCandidate, VulkanDeviceError> {
+) -> error_stack::Result<DeviceCandidate, VulkanDeviceError> {
     // SAFETY: `instance` owns a valid Vulkan instance for the duration of device
     // selection.
-    let pdevices = unsafe { inst.enumerate_physical_devices() }
+    let pdevices = unsafe { inst.get().enumerate_physical_devices() }
         .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
         .attach_printable("failed to enumerate physical devices")?;
 
@@ -274,7 +257,7 @@ fn pick_physical(
         let mut props2 = vk::PhysicalDeviceProperties2::default();
 
         // SAFETY: `device` descends from `inst`, so this is valid.
-        unsafe { inst.get_physical_device_properties2(physical, &mut props2) };
+        unsafe { inst.get().get_physical_device_properties2(physical, &mut props2) };
 
         let properties = props2.properties;
 
@@ -309,25 +292,22 @@ fn pick_physical(
         let mut queried_features_11 = vk::PhysicalDeviceVulkan11Features::default();
         let mut queried_features_12 = vk::PhysicalDeviceVulkan12Features::default();
         let mut queried_features_13 = vk::PhysicalDeviceVulkan13Features::default();
-        let mut queried_features_14 = vk::PhysicalDeviceVulkan14Features::default();
 
         {
             let mut features = vk::PhysicalDeviceFeatures2::default()
                 .features(queried_features_10)
-                .push(&mut queried_features_11)
-                .push(&mut queried_features_12)
-                .push(&mut queried_features_13)
-                .push(&mut queried_features_14);
+                .push_next(&mut queried_features_11)
+                .push_next(&mut queried_features_12)
+                .push_next(&mut queried_features_13);
 
             // SAFETY: `device` descends from `inst`, so this is valid.
-            unsafe { inst.get_physical_device_features2(physical, &mut features) };
+            unsafe { inst.get().get_physical_device_features2(physical, &mut features) };
 
             queried_features_10 = features.features;
 
             queried_features_11.p_next = core::ptr::null_mut();
             queried_features_12.p_next = core::ptr::null_mut();
             queried_features_13.p_next = core::ptr::null_mut();
-            queried_features_14.p_next = core::ptr::null_mut();
         }
 
         let mut conds_met = true;
@@ -342,12 +322,11 @@ fn pick_physical(
             continue;
         };
 
-        let features_info = check_and_enable_features(
+        let features_info = get_features_info(
             &queried_features_10,
             &queried_features_11,
             &queried_features_12,
             &queried_features_13,
-            &queried_features_14,
         );
 
         for (cond, met) in features_info.availability.into_iter().chain(vec![(
@@ -383,7 +362,6 @@ fn pick_physical(
             features_11: features_info.enabled_f11,
             features_12: features_info.enabled_f12,
             features_13: features_info.enabled_f13,
-            features_14: features_info.enabled_f14,
         };
 
         if let Some(cand) = &best_candidate
@@ -404,10 +382,11 @@ fn pick_physical(
 fn check_device_extension_support(
     inst: &instance::VulkanInstance,
     device: vk::PhysicalDevice,
-) -> Result<bool, VulkanDeviceError> {
+) -> error_stack::Result<bool, VulkanDeviceError> {
     // SAFETY: `device` descends from `inst`, so this is valid.
     let available_exts = unsafe {
-        inst.enumerate_device_extension_properties(device)
+        inst.get()
+            .enumerate_device_extension_properties(device)
             .map_err(VulkanDeviceError::UnexpectedResult)?
     };
 
@@ -426,7 +405,7 @@ fn find_queue_family_indices(
     inst: &instance::VulkanInstance,
     device: PhysicalDevice,
     surf: &surface::VulkanSurface,
-) -> Result<Option<QueueFamilyIndices>, VulkanDeviceError> {
+) -> error_stack::Result<Option<QueueFamilyIndices>, VulkanDeviceError> {
     let mut graphics: Option<u32> = None;
     let mut graphics_present: Option<u32> = None;
     let mut present: Option<u32> = None;
@@ -438,7 +417,7 @@ fn find_queue_family_indices(
 
     // SAFETY: `device` came from `inst`, so querying its queue families against
     // the same instance is valid.
-    let qfs = unsafe { inst.get_physical_device_queue_family_properties(device) };
+    let qfs = unsafe { inst.get().get_physical_device_queue_family_properties(device) };
 
     for (index, queue_family) in qfs.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation, clippy::as_conversions)]
@@ -513,7 +492,6 @@ struct FeaturesInfo {
     enabled_f11: vk::PhysicalDeviceVulkan11Features<'static>,
     enabled_f12: vk::PhysicalDeviceVulkan12Features<'static>,
     enabled_f13: vk::PhysicalDeviceVulkan13Features<'static>,
-    enabled_f14: vk::PhysicalDeviceVulkan14Features<'static>,
 }
 
 macro_rules! require_features {
@@ -537,12 +515,11 @@ macro_rules! require_features {
     };
 }
 
-fn check_and_enable_features(
+fn get_features_info(
     supported_10: &vk::PhysicalDeviceFeatures,
     supported_11: &vk::PhysicalDeviceVulkan11Features<'_>,
     supported_12: &vk::PhysicalDeviceVulkan12Features<'_>,
     supported_13: &vk::PhysicalDeviceVulkan13Features<'_>,
-    supported_14: &vk::PhysicalDeviceVulkan14Features<'_>,
 ) -> FeaturesInfo {
     let mut availability = Vec::new();
 
@@ -550,7 +527,6 @@ fn check_and_enable_features(
     let mut enabled_11 = vk::PhysicalDeviceVulkan11Features::default();
     let mut enabled_12 = vk::PhysicalDeviceVulkan12Features::default();
     let mut enabled_13 = vk::PhysicalDeviceVulkan13Features::default();
-    let mut enabled_14 = vk::PhysicalDeviceVulkan14Features::default();
 
     require_features!(availability;
         supported_10 => enabled_10 {
@@ -585,10 +561,6 @@ fn check_and_enable_features(
             synchronization2 => "Synchronization2 availability",
             dynamic_rendering => "Dynamic rendering availability",
         }
-
-        supported_14 => enabled_14 {
-            maintenance5 => "Maintenance5 availability"
-        }
     );
 
     FeaturesInfo {
@@ -597,6 +569,5 @@ fn check_and_enable_features(
         enabled_f11: enabled_11,
         enabled_f12: enabled_12,
         enabled_f13: enabled_13,
-        enabled_f14: enabled_14,
     }
 }

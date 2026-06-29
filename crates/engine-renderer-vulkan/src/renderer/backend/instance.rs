@@ -1,15 +1,14 @@
 use std::{
     borrow::Cow,
     ffi::{CStr, c_char},
-    ops::Deref,
 };
 
 use ash::{
     ext::debug_utils,
-    vk::{self, DebugUtilsMessageSeverityFlagsEXT, TaggedStructure, ValidationFeatureEnableEXT},
+    vk::{self, DebugUtilsMessageSeverityFlagsEXT, ValidationFeatureEnableEXT},
 };
 use common::logging::macros::*;
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use raw_window_handle::RawDisplayHandle;
 use thiserror::Error;
 
@@ -66,12 +65,12 @@ pub(super) enum VulkanInstanceError {
 pub(super) struct VulkanInstance {
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     debug_utils_loader: Option<debug_utils::Instance>,
-    raw: ash::Instance,
+    handle: ash::Instance,
 }
 
 impl VulkanInstance {
     pub(super) fn get(&self) -> &ash::Instance {
-        &self.raw
+        &self.handle
     }
 }
 
@@ -93,18 +92,10 @@ impl Drop for VulkanInstance {
         // instance children held by this wrapper have been destroyed, and no
         // custom allocator was used.
         unsafe {
-            self.raw.destroy_instance(None);
+            self.handle.destroy_instance(None);
         }
 
         trace!("instance destroyed");
-    }
-}
-
-impl Deref for VulkanInstance {
-    type Target = ash::Instance;
-
-    fn deref(&self) -> &Self::Target {
-        &self.raw
     }
 }
 
@@ -120,7 +111,7 @@ impl VulkanBackend {
     pub(super) fn create_instance(
         entry: &ash::Entry,
         display_handle: RawDisplayHandle,
-    ) -> Result<VulkanInstance, VulkanInstanceError> {
+    ) -> error_stack::Result<VulkanInstance, VulkanInstanceError> {
         // SAFETY: `entry` was loaded successfully and this call only queries loader-supported
         // instance API version information.
         if let Some(version) = unsafe { entry.try_enumerate_instance_version() }
@@ -180,8 +171,8 @@ impl VulkanBackend {
                 .application_info(&appinfo)
                 .enabled_layer_names(&layers_names_raw)
                 .enabled_extension_names(&extension_names)
-                .push(&mut debug_info)
-                .push(&mut validation_features);
+                .push_next(&mut debug_info)
+                .push_next(&mut validation_features);
 
             // SAFETY: `create_info` points to local data that lives through the
             // call, and no custom allocator is used.
@@ -192,7 +183,7 @@ impl VulkanBackend {
 
         trace!("instance initialized");
 
-        let debug_utils_loader = debug_utils::Instance::load(entry, &raw);
+        let debug_utils_loader = debug_utils::Instance::new(entry, &raw);
         // SAFETY: `debug_info` contains a valid static callback function and
         // lives for the duration of the Vulkan call.
         let debug_callback =
@@ -205,7 +196,7 @@ impl VulkanBackend {
         Ok(VulkanInstance {
             debug_callback: Some(debug_callback),
             debug_utils_loader: Some(debug_utils_loader),
-            raw,
+            handle: raw,
         })
     }
 }

@@ -3,7 +3,7 @@ use ash::vk::{
     SurfaceKHR,
 };
 use common::logging::macros::*;
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use thiserror::Error;
 
@@ -13,7 +13,7 @@ use crate::renderer::backend::{device, instance};
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
 pub(super) enum VulkanSurfaceError {
-    /// Failed to create the vulkan instance
+    /// Vulkan API call returned an error value.
     #[error("vulkan result has an error value: {0}")]
     UnexpectedResult(ash::vk::Result),
 
@@ -23,28 +23,33 @@ pub(super) enum VulkanSurfaceError {
 }
 
 pub(super) struct VulkanSurface {
-    details: Option<SurfaceDetails>,
-    raw: SurfaceKHR,
+    handle: SurfaceKHR,
     loader: ash::khr::surface::Instance,
 }
 
 #[expect(dead_code)]
-pub(super) struct SurfaceDetails {
-    capabilities: SurfaceCapabilitiesKHR,
-    formats: Vec<SurfaceFormatKHR>,
-    present_modes: Vec<PresentModeKHR>,
+pub(super) struct SurfaceConfig {
+    pub(super) capabilities: SurfaceCapabilitiesKHR,
+    pub(super) formats: Vec<SurfaceFormatKHR>,
+    pub(super) present_modes: Vec<PresentModeKHR>,
 
-    extent: Extent2D,
-    surface_format: SurfaceFormatKHR,
-    present_mode: PresentModeKHR,
+    pub(super) extent: Extent2D,
+    pub(super) surface_format: SurfaceFormatKHR,
+    pub(super) present_mode: PresentModeKHR,
+}
+
+impl From<VulkanSurface> for SurfaceKHR {
+    fn from(value: VulkanSurface) -> Self {
+        value.handle
+    }
 }
 
 impl Drop for VulkanSurface {
     fn drop(&mut self) {
-        // SAFETY: `self.raw` was created by this loader with no custom allocator,
+        // SAFETY: `self.handle` was created by this loader with no custom allocator,
         // and the surface wrapper destroys it exactly once.
         unsafe {
-            self.loader.destroy_surface(self.raw, None);
+            self.loader.destroy_surface(self.handle, None);
         }
 
         trace!("surface destroyed");
@@ -60,44 +65,43 @@ impl std::fmt::Debug for VulkanSurface {
 
 impl VulkanSurface {
     pub(super) fn get(&self) -> ash::vk::SurfaceKHR {
-        self.raw
+        self.handle
     }
 
     pub(super) fn get_loader(&self) -> &ash::khr::surface::Instance {
         &self.loader
     }
 
-    pub(super) fn refresh(
+    // FIXME: Hm.. core::result::Result or error_stack::Result?
+
+    pub(super) fn make_config(
         &mut self,
         device: &device::VulkanDevice,
         window_dimensions: Extent2D,
         vsync: bool,
-    ) -> Result<(), VulkanSurfaceError> {
-        // SAFETY: `self.raw` is a live surface created from the same instance as
+    ) -> core::result::Result<SurfaceConfig, VulkanSurfaceError> {
+        // SAFETY: `self.handle` is a live surface created from the same instance as
         // `self.loader`, and `device.get_physical()` was selected from that instance.
         let capabilities = unsafe {
             self.loader
-                .get_physical_device_surface_capabilities(device.get_physical(), self.raw)
-                .map_err(report_vulkan_result)
-                .attach_printable("failed to get physical device surface capabilities")?
+                .get_physical_device_surface_capabilities(device.get_physical(), self.handle)
+                .map_err(VulkanSurfaceError::UnexpectedResult)?
         };
 
-        // SAFETY: `self.raw` is a live surface created from the same instance as
+        // SAFETY: `self.handle` is a live surface created from the same instance as
         // `self.loader`, and `device.get_physical()` was selected from that instance.
         let formats = unsafe {
             self.loader
-                .get_physical_device_surface_formats(device.get_physical(), self.raw)
-                .map_err(report_vulkan_result)
-                .attach_printable("failed to get physical device surface formats")?
+                .get_physical_device_surface_formats(device.get_physical(), self.handle)
+                .map_err(VulkanSurfaceError::UnexpectedResult)?
         };
 
-        // SAFETY: `self.raw` is a live surface created from the same instance as
+        // SAFETY: `self.handle` is a live surface created from the same instance as
         // `self.loader`, and `device.get_physical()` was selected from that instance.
         let present_modes = unsafe {
             self.loader
-                .get_physical_device_surface_present_modes(device.get_physical(), self.raw)
-                .map_err(report_vulkan_result)
-                .attach_printable("failed to get physical device surface present modes")?
+                .get_physical_device_surface_present_modes(device.get_physical(), self.handle)
+                .map_err(VulkanSurfaceError::UnexpectedResult)?
         };
 
         let extent = if capabilities.current_extent.width == u32::MAX {
@@ -114,23 +118,21 @@ impl VulkanSurface {
                     && format.color_space == ColorSpaceKHR::SRGB_NONLINEAR
             })
             .or_else(|| formats.first().copied())
-            .ok_or_else(|| Report::new(VulkanSurfaceError::NoSurfaceFormats))?;
+            .ok_or(VulkanSurfaceError::NoSurfaceFormats)?;
 
         let present_mode = (!vsync)
             .then(|| present_modes.iter().copied().find(|mode| *mode == PresentModeKHR::IMMEDIATE))
             .flatten()
             .unwrap_or(PresentModeKHR::FIFO);
 
-        self.details = Some(SurfaceDetails {
+        Ok(SurfaceConfig {
             capabilities,
             formats,
             present_modes,
             extent,
             surface_format,
             present_mode,
-        });
-
-        Ok(())
+        })
     }
 }
 
@@ -140,27 +142,21 @@ impl VulkanBackend {
         instance: &instance::VulkanInstance,
         display_handle: RawDisplayHandle,
         window_handle: RawWindowHandle,
-    ) -> Result<VulkanSurface, VulkanSurfaceError> {
+    ) -> error_stack::Result<VulkanSurface, VulkanSurfaceError> {
         // SAFETY: The raw display/window handles come from the live winit window,
         // and `instance` was created with the required platform surface extensions.
-        let raw = unsafe {
-            ash_window::SurfaceFactory::new(entry, instance.get(), display_handle)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
-                .create_surface(window_handle, None)
+        let handle = unsafe {
+            ash_window::create_surface(entry, instance.get(), display_handle, window_handle, None)
         }
-        .map_err(report_vulkan_result)
+        .map_err(|result| Report::new(VulkanSurfaceError::UnexpectedResult(result)))
         .attach_printable("failed to create vulkan surface")?;
 
-        let loader = ash::khr::surface::Instance::load(entry, instance.get());
+        let loader = ash::khr::surface::Instance::new(entry, instance.get());
 
-        let surface = VulkanSurface { raw, loader, details: None };
+        let surface = VulkanSurface { handle, loader };
 
         trace!("surface initialized");
 
         Ok(surface)
     }
-}
-
-fn report_vulkan_result(result: ash::vk::Result) -> Report<VulkanSurfaceError> {
-    Report::new(VulkanSurfaceError::UnexpectedResult(result))
 }
