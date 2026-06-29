@@ -11,6 +11,7 @@ pub(super) enum VulkanAllocatorError {
     UnexpectedResult(ash::vk::Result),
 }
 
+#[allow(dead_code)]
 pub(super) struct VulkanAllocator {
     handle: vk_mem::Allocator,
 }

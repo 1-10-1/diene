@@ -12,6 +12,7 @@ pub(super) enum VulkanCommandError {
     UnexpectedResult(ash::vk::Result),
 }
 
+#[allow(dead_code)]
 pub(super) struct VulkanCommand {
     graphics_pool: ash::vk::CommandPool,
     transfer_pool: ash::vk::CommandPool,
