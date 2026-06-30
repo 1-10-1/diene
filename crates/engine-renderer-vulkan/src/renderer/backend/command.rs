@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ash::vk;
 use error_stack::Report;
 use thiserror::Error;
@@ -18,6 +20,18 @@ pub(super) struct VulkanCommand {
     transfer_pool: ash::vk::CommandPool,
     compute_pool: ash::vk::CommandPool,
     graphics_command_buffers: Vec<ash::vk::CommandBuffer>,
+    device: Arc<device::VulkanLogicalDevice>,
+}
+
+impl Drop for VulkanCommand {
+    fn drop(&mut self) {
+        // SAFETY: `self.device` is alive.
+        unsafe {
+            self.device.get_handle().destroy_command_pool(self.graphics_pool, None);
+            self.device.get_handle().destroy_command_pool(self.transfer_pool, None);
+            self.device.get_handle().destroy_command_pool(self.compute_pool, None);
+        }
+    }
 }
 
 impl VulkanCommand {
@@ -26,7 +40,7 @@ impl VulkanCommand {
     ) -> error_stack::Result<Self, VulkanCommandError> {
         // SAFETY: `device` is alive.
         let graphics_pool = unsafe {
-            device.get().create_command_pool(
+            device.get_logical().get_handle().create_command_pool(
                 &vk::CommandPoolCreateInfo::default()
                     .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                     .queue_family_index(device.get_queue_families().graphics),
@@ -37,7 +51,7 @@ impl VulkanCommand {
 
         // SAFETY: `device` is alive.
         let transfer_pool = unsafe {
-            device.get().create_command_pool(
+            device.get_logical().get_handle().create_command_pool(
                 &vk::CommandPoolCreateInfo::default()
                     .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                     .queue_family_index(device.get_queue_families().transfer),
@@ -48,7 +62,7 @@ impl VulkanCommand {
 
         // SAFETY: `device` is alive.
         let compute_pool = unsafe {
-            device.get().create_command_pool(
+            device.get_logical().get_handle().create_command_pool(
                 &vk::CommandPoolCreateInfo::default()
                     .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                     .queue_family_index(device.get_queue_families().compute),
@@ -59,7 +73,7 @@ impl VulkanCommand {
 
         // SAFETY: `device` is alive.
         let graphics_command_buffers = unsafe {
-            device.get().allocate_command_buffers(
+            device.get_logical().get_handle().allocate_command_buffers(
                 &vk::CommandBufferAllocateInfo::default()
                     .command_pool(graphics_pool)
                     .level(vk::CommandBufferLevel::PRIMARY)
@@ -68,6 +82,12 @@ impl VulkanCommand {
         }
         .map_err(|result| Report::new(VulkanCommandError::UnexpectedResult(result)))?;
 
-        Ok(Self { graphics_pool, transfer_pool, compute_pool, graphics_command_buffers })
+        Ok(Self {
+            graphics_pool,
+            transfer_pool,
+            compute_pool,
+            graphics_command_buffers,
+            device: device.get_logical().clone(),
+        })
     }
 }

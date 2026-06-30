@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ash::vk;
 use common::logging::macros::*;
 use error_stack::Report;
@@ -5,7 +7,7 @@ use thiserror::Error;
 
 use super::VulkanBackend;
 use crate::renderer::backend::{
-    device::VulkanDevice,
+    device::{self},
     instance::VulkanInstance,
     surface::{SurfaceConfig, VulkanSurface},
 };
@@ -20,11 +22,11 @@ pub(super) enum VulkanSwapchainError {
 
 #[allow(dead_code)]
 pub(super) struct VulkanSwapchain {
-    loader: ash::khr::swapchain::Device,
-    logical: ash::Device,
     handle: vk::SwapchainKHR,
     present_images: Vec<ash::vk::Image>,
     present_image_views: Vec<ash::vk::ImageView>,
+    logical: Arc<device::VulkanLogicalDevice>,
+    loader: ash::khr::swapchain::Device,
 }
 
 impl Drop for VulkanSwapchain {
@@ -32,7 +34,7 @@ impl Drop for VulkanSwapchain {
         for image_view in self.present_image_views.drain(..) {
             // SAFETY: `image_view` was constructed through `self.logical`.
             // This is called exactly once during drop.
-            unsafe { self.logical.destroy_image_view(image_view, None) };
+            unsafe { self.logical.get_handle().destroy_image_view(image_view, None) };
         }
 
         // SAFETY: `self.loader` created `self.handle` during construction.
@@ -60,7 +62,7 @@ impl VulkanSwapchain {
 impl VulkanBackend {
     pub(super) fn create_swapchain(
         instance: &VulkanInstance,
-        device: &VulkanDevice,
+        device: Arc<device::VulkanLogicalDevice>,
         surface: &VulkanSurface,
         SurfaceConfig {
             capabilities,
@@ -71,7 +73,7 @@ impl VulkanBackend {
             present_mode,
         }: &SurfaceConfig,
     ) -> error_stack::Result<VulkanSwapchain, VulkanSwapchainError> {
-        let loader = ash::khr::swapchain::Device::new(instance.get(), device.get());
+        let loader = ash::khr::swapchain::Device::new(instance.get(), device.get_handle());
 
         let mut desired_image_count = capabilities.min_image_count + 1;
 
@@ -131,20 +133,15 @@ impl VulkanBackend {
                 .image(image);
 
             // SAFETY: The underlying image was constructed through the same device.
-            let image_view = unsafe { device.get().create_image_view(&create_view_info, None) }
-                .map_err(VulkanSwapchainError::UnexpectedResult)?;
+            let image_view =
+                unsafe { device.get_handle().create_image_view(&create_view_info, None) }
+                    .map_err(VulkanSwapchainError::UnexpectedResult)?;
 
             present_image_views.push(image_view);
         }
 
         trace!("swapchain initialized");
 
-        Ok(VulkanSwapchain {
-            loader,
-            logical: device.get().clone(),
-            handle,
-            present_images,
-            present_image_views,
-        })
+        Ok(VulkanSwapchain { loader, logical: device, handle, present_images, present_image_views })
     }
 }

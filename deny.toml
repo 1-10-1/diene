@@ -3,6 +3,7 @@ version = 2
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 ignore = []
+unmaintained = "workspace"
 
 [licenses]
 version = 2
@@ -31,3 +32,4 @@ unknown-registry = "deny"
 unknown-git = "allow"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
+

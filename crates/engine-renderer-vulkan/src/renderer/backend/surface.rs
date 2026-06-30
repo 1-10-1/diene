@@ -8,7 +8,7 @@ use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use thiserror::Error;
 
 use super::VulkanBackend;
-use crate::renderer::backend::{device, instance};
+use crate::renderer::backend::instance;
 
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
@@ -76,7 +76,7 @@ impl VulkanSurface {
 
     pub(super) fn make_config(
         &mut self,
-        device: &device::VulkanDevice,
+        physical_device: ash::vk::PhysicalDevice,
         window_dimensions: Extent2D,
         vsync: bool,
     ) -> core::result::Result<SurfaceConfig, VulkanSurfaceError> {
@@ -84,7 +84,7 @@ impl VulkanSurface {
         // `self.loader`, and `device.get_physical()` was selected from that instance.
         let capabilities = unsafe {
             self.loader
-                .get_physical_device_surface_capabilities(device.get_physical(), self.handle)
+                .get_physical_device_surface_capabilities(physical_device, self.handle)
                 .map_err(VulkanSurfaceError::UnexpectedResult)?
         };
 
@@ -92,7 +92,7 @@ impl VulkanSurface {
         // `self.loader`, and `device.get_physical()` was selected from that instance.
         let formats = unsafe {
             self.loader
-                .get_physical_device_surface_formats(device.get_physical(), self.handle)
+                .get_physical_device_surface_formats(physical_device, self.handle)
                 .map_err(VulkanSurfaceError::UnexpectedResult)?
         };
 
@@ -100,7 +100,7 @@ impl VulkanSurface {
         // `self.loader`, and `device.get_physical()` was selected from that instance.
         let present_modes = unsafe {
             self.loader
-                .get_physical_device_surface_present_modes(device.get_physical(), self.handle)
+                .get_physical_device_surface_present_modes(physical_device, self.handle)
                 .map_err(VulkanSurfaceError::UnexpectedResult)?
         };
 

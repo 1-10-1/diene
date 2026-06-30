@@ -19,10 +19,11 @@ pub(super) struct VulkanAllocator {
 impl VulkanAllocator {
     pub(super) fn new(
         instance: &instance::VulkanInstance,
-        device: &device::VulkanDevice,
+        device: &device::VulkanLogicalDevice,
+        physical_device: ash::vk::PhysicalDevice,
     ) -> error_stack::Result<Self, VulkanAllocatorError> {
         let mut create_info =
-            AllocatorCreateInfo::new(instance.get(), device.get(), device.get_physical());
+            AllocatorCreateInfo::new(instance.get(), device.get_handle(), physical_device);
 
         create_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
 

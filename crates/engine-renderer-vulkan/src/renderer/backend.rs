@@ -110,17 +110,23 @@ impl VulkanBackend {
         let RenderExtent { width, height } = rw.size();
 
         let surface_config = surface
-            .make_config(&device, Extent2D { width, height }, vsync)
+            .make_config(device.get_physical(), Extent2D { width, height }, vsync)
             .change_context(VulkanBackendError::RefreshSurface)?;
 
         // WARN: The C++ equivalent recreates fences and semaphores in the
         // constructor for some reason.
         // Figure out the reason, and if valid, implement that.
-        let swapchain = Self::create_swapchain(&instance, &device, &surface, &surface_config)
-            .change_context(VulkanBackendError::SwapchainOperation)?;
+        let swapchain = Self::create_swapchain(
+            &instance,
+            device.get_logical().clone(),
+            &surface,
+            &surface_config,
+        )
+        .change_context(VulkanBackendError::SwapchainOperation)?;
 
-        let allocator = allocator::VulkanAllocator::new(&instance, &device)
-            .change_context(VulkanBackendError::AllocatorOperation)?;
+        let allocator =
+            allocator::VulkanAllocator::new(&instance, device.get_logical(), device.get_physical())
+                .change_context(VulkanBackendError::AllocatorOperation)?;
 
         let command = command::VulkanCommand::new(&device)
             .change_context(VulkanBackendError::CommandOperation)?;

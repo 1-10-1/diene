@@ -3,6 +3,7 @@
 use std::{
     ffi::{CStr, CString, c_char},
     fmt::Write,
+    sync::Arc,
 };
 
 use ash::{
@@ -37,9 +38,48 @@ pub(super) enum VulkanDeviceError {
     NoSuitablePhysicalDevice,
 }
 
-pub(super) struct VulkanDevice {
+pub(super) struct VulkanLogicalDevice {
     debug_utils_loader: debug_utils::Device,
-    logical: ash::Device,
+    handle: ash::Device,
+}
+
+impl VulkanLogicalDevice {
+    pub(super) fn get_handle(&self) -> &ash::Device {
+        &self.handle
+    }
+
+    #[cfg(debug_assertions)]
+    pub(super) fn set_name<T: vk::Handle>(
+        &self,
+        name: &CString,
+        handle: T,
+    ) -> core::result::Result<(), vk::Result> {
+        let name_info =
+            DebugUtilsObjectNameInfoEXT::default().object_name(name).object_handle(handle);
+
+        // SAFETY: `self.logical` is a live device, `debug_utils_loader` was created for it, and
+        // `name_info` points to `self.name`, which lives throughout the entire
+        // lifetime of this struct.
+        unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info)? };
+
+        Ok(())
+    }
+}
+
+impl Drop for VulkanLogicalDevice {
+    fn drop(&mut self) {
+        // SAFETY: `self.logical` is a valid logical device created by `create_device`,
+        // owned exclusively by this RAII wrapper, and destroyed exactly once here.
+        // Future device-owned resources must be destroyed before this wrapper drops.
+        unsafe {
+            self.handle.destroy_device(None);
+        }
+        trace!("device destroyed");
+    }
+}
+
+pub(super) struct VulkanDevice {
+    logical: Arc<VulkanLogicalDevice>,
     physical: PhysicalDevice,
     properties: PhysicalDeviceProperties,
     graphics_queue: vk::Queue,
@@ -48,8 +88,6 @@ pub(super) struct VulkanDevice {
     dedicated_compute: bool,
     dedicated_transfer: bool,
     queue_families: QueueFamilyIndices,
-    #[cfg(debug_assertions)]
-    name: CString,
 }
 
 #[derive(Clone)]
@@ -73,7 +111,7 @@ struct DeviceCandidate {
 }
 
 impl VulkanDevice {
-    pub(super) fn get(&self) -> &ash::Device {
+    pub(super) fn get_logical(&self) -> &Arc<VulkanLogicalDevice> {
         &self.logical
     }
 
@@ -81,43 +119,8 @@ impl VulkanDevice {
         self.physical
     }
 
-    #[cfg(debug_assertions)]
-    pub(super) fn get_name(&self) -> &CString {
-        &self.name
-    }
-
     pub(super) fn get_queue_families(&self) -> &QueueFamilyIndices {
         &self.queue_families
-    }
-
-    #[cfg(debug_assertions)]
-    pub(super) fn set_name<T: vk::Handle>(
-        &self,
-        name: &CString,
-        handle: T,
-    ) -> core::result::Result<(), vk::Result> {
-        let name_info =
-            DebugUtilsObjectNameInfoEXT::default().object_name(name).object_handle(handle);
-
-        // SAFETY: `self.logical` is a live device, `debug_utils_loader` was created for it, and
-        // `name_info` points to `self.name`, which lives throughout the entire
-        // lifetime of this struct.
-        unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info)? };
-
-        Ok(())
-    }
-}
-
-impl Drop for VulkanDevice {
-    fn drop(&mut self) {
-        // SAFETY: `self.logical` is a valid logical device created by `create_device`,
-        // owned exclusively by this RAII wrapper, and destroyed exactly once here.
-        // Future device-owned resources must be destroyed before this wrapper drops.
-        unsafe {
-            self.logical.destroy_device(None);
-        }
-
-        trace!("device destroyed");
     }
 }
 
@@ -185,26 +188,30 @@ impl VulkanBackend {
 
         // SAFETY: `physical` was selected from `instance`, and `device_create_info` only references
         // local data that lives through this call.
-        let logical = unsafe { instance.get().create_device(physical, &device_create_info, None) }
-            .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
-            .attach_printable("failed to create vulkan logical device")?;
+        let logical_handle =
+            unsafe { instance.get().create_device(physical, &device_create_info, None) }
+                .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
+                .attach_printable("failed to create vulkan logical device")?;
 
-        let debug_utils_loader = debug_utils::Device::new(instance.get(), &logical);
+        let debug_utils_loader = debug_utils::Device::new(instance.get(), &logical_handle);
 
-        // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
-        // succeeded with the given queue create infos.
-        let graphics_queue = unsafe { logical.get_device_queue(queue_families.graphics, 0) };
-
-        // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
-        // succeeded with the given queue create infos.
-        let compute_queue = unsafe { logical.get_device_queue(queue_families.compute, 0) };
+        let logical = Arc::new(VulkanLogicalDevice { handle: logical_handle, debug_utils_loader });
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
-        let transfer_queue = unsafe { logical.get_device_queue(queue_families.transfer, 0) };
+        let graphics_queue = unsafe { logical.handle.get_device_queue(queue_families.graphics, 0) };
+
+        // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
+        // succeeded with the given queue create infos.
+        let compute_queue =
+            unsafe { logical.get_handle().get_device_queue(queue_families.compute, 0) };
+
+        // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
+        // succeeded with the given queue create infos.
+        let transfer_queue =
+            unsafe { logical.get_handle().get_device_queue(queue_families.transfer, 0) };
 
         let device = VulkanDevice {
-            debug_utils_loader,
             logical,
             physical,
             properties,
@@ -213,14 +220,13 @@ impl VulkanBackend {
             transfer_queue,
             dedicated_compute: queue_families.compute != queue_families.graphics,
             dedicated_transfer: queue_families.transfer != queue_families.graphics,
-            #[cfg(debug_assertions)]
-            name: c"Untitled".to_owned(),
             queue_families: queue_families.clone(),
         };
 
         #[cfg(debug_assertions)]
         device
-            .set_name(&c"Logical Device".to_owned(), device.logical.handle())
+            .logical
+            .set_name(&c"Logical Device".to_owned(), device.logical.get_handle().handle())
             .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))?;
 
         let queue_sharing_label = |q1: u32, q2: u32| {
