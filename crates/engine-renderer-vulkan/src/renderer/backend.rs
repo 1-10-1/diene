@@ -108,7 +108,7 @@ impl VulkanBackend {
 
         // WARN: The C++ equivalent recreates fences and semaphores in the
         // constructor for some reason.
-        // Figure out the reason, and if valid, implement that.
+        // Figure out the reason, and if valid, implement it.
         let swapchain = Self::create_swapchain(
             &instance,
             device.get_logical().clone(),
