@@ -34,15 +34,15 @@ pub(super) enum VulkanBackendError {
     SurfaceOperation,
 
     /// Vulkan device operation failed.
-    #[error("logical  operation faileddevice")]
+    #[error("logical device operation failed")]
     DeviceOperation,
 
     /// Vulkan swapchain operation failed.
     #[error("swapchain operation failed")]
     SwapchainOperation,
 
-    /// Vulkan swapchain operation failed.
-    #[error("swapchain operation failed")]
+    /// Vulkan allocator operation failed.
+    #[error("allocator operation failed")]
     AllocatorOperation,
 
     /// Vulkan command operation failed.
@@ -64,13 +64,6 @@ pub(super) struct VulkanBackend {
     surface: surface::VulkanSurface,
     instance: instance::VulkanInstance,
     entry: ash::Entry,
-}
-
-impl std::fmt::Debug for VulkanBackend {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: Use debug names here
-        f.debug_struct("<Vulkan Backend>").field("instance", &self.instance).finish_non_exhaustive()
-    }
 }
 
 impl VulkanBackend {
@@ -128,8 +121,9 @@ impl VulkanBackend {
             allocator::VulkanAllocator::new(&instance, device.get_logical(), device.get_physical())
                 .change_context(VulkanBackendError::AllocatorOperation)?;
 
-        let command = command::VulkanCommand::new(&device)
-            .change_context(VulkanBackendError::CommandOperation)?;
+        let command =
+            command::VulkanCommand::new(device.get_logical().clone(), device.get_queue_families())
+                .change_context(VulkanBackendError::CommandOperation)?;
 
         Ok(Self { command, allocator, swapchain, surface_config, device, surface, instance, entry })
     }

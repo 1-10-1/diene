@@ -1,15 +1,14 @@
 #![allow(dead_code)]
 
 use std::{
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, c_char},
     fmt::Write,
     sync::Arc,
 };
 
-use ash::{
-    ext::debug_utils,
-    vk::{self, DebugUtilsObjectNameInfoEXT, PhysicalDevice, PhysicalDeviceProperties},
-};
+#[cfg(debug_assertions)]
+use ash::ext::debug_utils;
+use ash::vk::{self, PhysicalDevice, PhysicalDeviceProperties};
 use common::logging::macros::*;
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
@@ -34,12 +33,14 @@ pub(super) enum VulkanDeviceError {
     UnexpectedResult(ash::vk::Result),
 
     /// No physical devices were suitable.
-    #[error("transparent")]
+    #[error("no physical devices were found suitable for this renderer.")]
     NoSuitablePhysicalDevice,
 }
 
 pub(super) struct VulkanLogicalDevice {
+    #[cfg(debug_assertions)]
     debug_utils_loader: debug_utils::Device,
+
     handle: ash::Device,
 }
 
@@ -51,15 +52,14 @@ impl VulkanLogicalDevice {
     #[cfg(debug_assertions)]
     pub(super) fn set_name<T: vk::Handle>(
         &self,
-        name: &CString,
+        name: &CStr,
         handle: T,
     ) -> core::result::Result<(), vk::Result> {
         let name_info =
-            DebugUtilsObjectNameInfoEXT::default().object_name(name).object_handle(handle);
+            vk::DebugUtilsObjectNameInfoEXT::default().object_name(name).object_handle(handle);
 
-        // SAFETY: `self.logical` is a live device, `debug_utils_loader` was created for it, and
-        // `name_info` points to `self.name`, which lives throughout the entire
-        // lifetime of this struct.
+        // SAFETY: `self.handle` is a live device, `debug_utils_loader` was created for it, and
+        // `name_info` points to `name`, which lives through this call.
         unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info)? };
 
         Ok(())
@@ -68,10 +68,11 @@ impl VulkanLogicalDevice {
 
 impl Drop for VulkanLogicalDevice {
     fn drop(&mut self) {
-        // SAFETY: `self.logical` is a valid logical device created by `create_device`,
+        // SAFETY: `self.handle` is a valid logical device created by `create_device`,
         // owned exclusively by this RAII wrapper, and destroyed exactly once here.
         // Future device-owned resources must be destroyed before this wrapper drops.
         unsafe {
+            let _ = self.handle.device_wait_idle();
             self.handle.destroy_device(None);
         }
         trace!("device destroyed");
@@ -85,8 +86,8 @@ pub(super) struct VulkanDevice {
     graphics_queue: vk::Queue,
     compute_queue: vk::Queue,
     transfer_queue: vk::Queue,
-    dedicated_compute: bool,
-    dedicated_transfer: bool,
+    compute_separate_from_graphics: bool,
+    transfer_separate_from_graphics: bool,
     queue_families: QueueFamilyIndices,
 }
 
@@ -121,13 +122,6 @@ impl VulkanDevice {
 
     pub(super) fn get_queue_families(&self) -> &QueueFamilyIndices {
         &self.queue_families
-    }
-}
-
-impl std::fmt::Debug for VulkanDevice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: Use debug names here
-        f.debug_struct("<Vulkan Device>").finish()
     }
 }
 
@@ -193,9 +187,14 @@ impl VulkanBackend {
                 .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
                 .attach_printable("failed to create vulkan logical device")?;
 
+        #[cfg(debug_assertions)]
         let debug_utils_loader = debug_utils::Device::new(instance.get(), &logical_handle);
 
-        let logical = Arc::new(VulkanLogicalDevice { handle: logical_handle, debug_utils_loader });
+        let logical = Arc::new(VulkanLogicalDevice {
+            #[cfg(debug_assertions)]
+            debug_utils_loader,
+            handle: logical_handle,
+        });
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
@@ -218,22 +217,22 @@ impl VulkanBackend {
             graphics_queue,
             compute_queue,
             transfer_queue,
-            dedicated_compute: queue_families.compute != queue_families.graphics,
-            dedicated_transfer: queue_families.transfer != queue_families.graphics,
+            compute_separate_from_graphics: queue_families.compute != queue_families.graphics,
+            transfer_separate_from_graphics: queue_families.transfer != queue_families.graphics,
             queue_families: queue_families.clone(),
         };
 
         #[cfg(debug_assertions)]
         device
             .logical
-            .set_name(&c"Logical Device".to_owned(), device.logical.get_handle().handle())
+            .set_name(c"Logical Device", device.logical.get_handle().handle())
             .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))?;
 
         let queue_sharing_label = |q1: u32, q2: u32| {
             if q1 == q2 {
-                "aliased"
+                "shared with graphics"
             } else {
-                "dedicated"
+                "separate from graphics"
             }
         };
 
@@ -259,7 +258,7 @@ fn pick_physical(
     inst: &instance::VulkanInstance,
     surf: &surface::VulkanSurface,
 ) -> error_stack::Result<DeviceCandidate, VulkanDeviceError> {
-    // SAFETY: `instance` owns a valid Vulkan instance for the duration of device
+    // SAFETY: `inst` owns a valid Vulkan instance for the duration of device
     // selection.
     let pdevices = unsafe { inst.get().enumerate_physical_devices() }
         .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
@@ -336,17 +335,25 @@ fn pick_physical(
             continue;
         };
 
-        let features_info = get_features_info(
-            &queried_features_10,
-            &queried_features_11,
-            &queried_features_12,
-            &queried_features_13,
-        );
+        let FeaturesInfo { mut availability, enabled_f10, enabled_f11, enabled_f12, enabled_f13 } =
+            get_features_info(
+                &queried_features_10,
+                &queried_features_11,
+                &queried_features_12,
+                &queried_features_13,
+            );
 
-        for (cond, met) in features_info.availability.into_iter().chain(vec![(
-            "Necessary extensions supported",
-            check_device_extension_support(inst, physical)?,
-        )]) {
+        let extensions_supported = check_device_extension_support(inst, physical)?;
+        availability.push(("Necessary extensions supported", extensions_supported));
+
+        if extensions_supported {
+            availability.push((
+                "Swapchain surface support adequate",
+                check_swapchain_adequacy(surf, physical)?,
+            ));
+        }
+
+        for (cond, met) in availability {
             if !met {
                 conds_met = false;
 
@@ -372,10 +379,10 @@ fn pick_physical(
             properties,
             queue_families,
             score,
-            features_10: features_info.enabled_f10,
-            features_11: features_info.enabled_f11,
-            features_12: features_info.enabled_f12,
-            features_13: features_info.enabled_f13,
+            features_10: enabled_f10,
+            features_11: enabled_f11,
+            features_12: enabled_f12,
+            features_13: enabled_f13,
         };
 
         if let Some(cand) = &best_candidate
@@ -415,6 +422,43 @@ fn check_device_extension_support(
     }))
 }
 
+fn check_swapchain_adequacy(
+    surf: &surface::VulkanSurface,
+    device: vk::PhysicalDevice,
+) -> error_stack::Result<bool, VulkanDeviceError> {
+    // SAFETY: `surf` is a live surface created from the same instance as the physical device.
+    let capabilities =
+        unsafe { surf.get_loader().get_physical_device_surface_capabilities(device, surf.get()) }
+            .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
+            .attach_printable("failed to query physical device surface capabilities")?;
+
+    // SAFETY: `surf` is a live surface created from the same instance as the physical device.
+    let formats =
+        unsafe { surf.get_loader().get_physical_device_surface_formats(device, surf.get()) }
+            .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
+            .attach_printable("failed to query physical device surface formats")?;
+
+    // SAFETY: `surf` is a live surface created from the same instance as the physical device.
+    let present_modes =
+        unsafe { surf.get_loader().get_physical_device_surface_present_modes(device, surf.get()) }
+            .map_err(|result| Report::new(VulkanDeviceError::UnexpectedResult(result)))
+            .attach_printable("failed to query physical device surface present modes")?;
+
+    let supports_known_composite_alpha = [
+        vk::CompositeAlphaFlagsKHR::OPAQUE,
+        vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED,
+        vk::CompositeAlphaFlagsKHR::POST_MULTIPLIED,
+        vk::CompositeAlphaFlagsKHR::INHERIT,
+    ]
+    .into_iter()
+    .any(|mode| capabilities.supported_composite_alpha.contains(mode));
+
+    Ok(!formats.is_empty()
+        && !present_modes.is_empty()
+        && capabilities.supported_usage_flags.contains(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+        && supports_known_composite_alpha)
+}
+
 fn find_queue_family_indices(
     inst: &instance::VulkanInstance,
     device: PhysicalDevice,
@@ -424,8 +468,8 @@ fn find_queue_family_indices(
     let mut graphics_present: Option<u32> = None;
     let mut present: Option<u32> = None;
     let mut compute: Option<u32> = None;
-    let mut compute_is_dedicated = false;
-    let mut transfer_dedicated: Option<u32> = None;
+    let mut compute_is_non_graphics = false;
+    let mut transfer_only: Option<u32> = None;
     let mut transfer_non_graphics: Option<u32> = None;
     let mut transfer_any: Option<u32> = None;
 
@@ -447,11 +491,11 @@ fn find_queue_family_indices(
         }
 
         if has_compute {
-            let dedicated = !has_graphics;
+            let non_graphics = !has_graphics;
 
-            if compute.is_none() || (dedicated && !compute_is_dedicated) {
+            if compute.is_none() || (non_graphics && !compute_is_non_graphics) {
                 compute = Some(index);
-                compute_is_dedicated = dedicated;
+                compute_is_non_graphics = non_graphics;
             }
         }
 
@@ -463,7 +507,7 @@ fn find_queue_family_indices(
             }
 
             if !has_graphics && !has_compute {
-                transfer_dedicated.get_or_insert(index);
+                transfer_only.get_or_insert(index);
             }
         }
 
@@ -488,7 +532,7 @@ fn find_queue_family_indices(
     let present = graphics_present.or(present);
 
     let transfer =
-        transfer_dedicated.or(transfer_non_graphics).or(transfer_any).or(compute).or(graphics);
+        transfer_only.or(transfer_non_graphics).or(transfer_any).or(compute).or(graphics);
 
     // NOTE: We're currently forcing graphics == present here.
     Ok(match (graphics, present, compute, transfer) {

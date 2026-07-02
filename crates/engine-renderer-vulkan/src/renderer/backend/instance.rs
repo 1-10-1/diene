@@ -1,12 +1,10 @@
-use std::{
-    borrow::Cow,
-    ffi::{CStr, c_char},
-};
+#[cfg(debug_assertions)]
+use std::borrow::Cow;
+use std::ffi::{CStr, c_char};
 
-use ash::{
-    ext::debug_utils,
-    vk::{self, DebugUtilsMessageSeverityFlagsEXT, ValidationFeatureEnableEXT},
-};
+#[cfg(debug_assertions)]
+use ash::ext::debug_utils;
+use ash::vk;
 use common::logging::macros::*;
 use error_stack::{Report, ResultExt};
 use raw_window_handle::RawDisplayHandle;
@@ -14,7 +12,7 @@ use thiserror::Error;
 
 use super::VulkanBackend;
 
-pub(super) const MIN_API_VERSION: ApiVersion = ApiVersion::new(1, 4, 0);
+pub(super) const MIN_API_VERSION: ApiVersion = ApiVersion::new(1, 3, 0);
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub(super) struct ApiVersion {
@@ -63,8 +61,12 @@ pub(super) enum VulkanInstanceError {
 }
 
 pub(super) struct VulkanInstance {
+    #[cfg(debug_assertions)]
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
+
+    #[cfg(debug_assertions)]
     debug_utils_loader: Option<debug_utils::Instance>,
+
     handle: ash::Instance,
 }
 
@@ -76,19 +78,22 @@ impl VulkanInstance {
 
 impl Drop for VulkanInstance {
     fn drop(&mut self) {
-        if let (Some(callback), Some(debug_utils_loader)) =
-            (self.debug_callback.take(), self.debug_utils_loader.take())
+        #[cfg(debug_assertions)]
         {
-            // SAFETY: `callback` was created from `debug_utils_loader` for this
-            // instance and is destroyed before the instance itself.
-            unsafe {
-                debug_utils_loader.destroy_debug_utils_messenger(callback, None);
-            }
+            if let (Some(callback), Some(debug_utils_loader)) =
+                (self.debug_callback.take(), self.debug_utils_loader.take())
+            {
+                // SAFETY: `callback` was created from `debug_utils_loader` for this
+                // instance and is destroyed before the instance itself.
+                unsafe {
+                    debug_utils_loader.destroy_debug_utils_messenger(callback, None);
+                }
 
-            trace!("debug messenger destroyed");
+                trace!("debug messenger destroyed");
+            }
         }
 
-        // SAFETY: `self.raw` is a valid instance owned by this wrapper, all
+        // SAFETY: `self.handle` is a valid instance owned by this wrapper, all
         // instance children held by this wrapper have been destroyed, and no
         // custom allocator was used.
         unsafe {
@@ -130,16 +135,33 @@ impl VulkanBackend {
                 .attach_printable(format!("required api version {MIN_API_VERSION}")));
         }
 
-        let layer_names = [c"VK_LAYER_KHRONOS_validation"];
+        #[cfg(debug_assertions)]
+        let layer_names: [&'static CStr; 1] = [c"VK_LAYER_KHRONOS_validation"];
+
+        #[cfg(not(debug_assertions))]
+        let layer_names: [&'static CStr; 0] = [];
+
         let layers_names_raw: Vec<*const c_char> =
             layer_names.iter().map(|raw_name| raw_name.as_ptr()).collect();
 
-        let mut extension_names = ash_window::enumerate_required_extensions(display_handle)
-            .map_err(report_vulkan_result)
-            .attach_printable("failed to enumerate required window-system vulkan extensions")?
-            .to_vec();
+        let extension_names = {
+            let extension_names = ash_window::enumerate_required_extensions(display_handle)
+                .map_err(report_vulkan_result)
+                .attach_printable("failed to enumerate required window-system vulkan extensions")?
+                .to_vec();
 
-        extension_names.push(debug_utils::NAME.as_ptr());
+            #[cfg(debug_assertions)]
+            {
+                let mut extension_names = extension_names;
+                extension_names.push(debug_utils::NAME.as_ptr());
+                extension_names
+            }
+
+            #[cfg(not(debug_assertions))]
+            {
+                extension_names
+            }
+        };
 
         let appinfo = vk::ApplicationInfo::default()
             .application_name(c"Diene Vulkan Backend")
@@ -148,12 +170,14 @@ impl VulkanBackend {
             .engine_version(0)
             .api_version(MIN_API_VERSION.into());
 
+        #[cfg(debug_assertions)]
         let mut validation_features = vk::ValidationFeaturesEXT::default()
             .enabled_validation_features(&[
-                ValidationFeatureEnableEXT::BEST_PRACTICES,
-                ValidationFeatureEnableEXT::SYNCHRONIZATION_VALIDATION,
+                vk::ValidationFeatureEnableEXT::BEST_PRACTICES,
+                vk::ValidationFeatureEnableEXT::SYNCHRONIZATION_VALIDATION,
             ]);
 
+        #[cfg(debug_assertions)]
         let mut debug_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
             .message_severity(
                 vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
@@ -170,9 +194,15 @@ impl VulkanBackend {
             let create_info = vk::InstanceCreateInfo::default()
                 .application_info(&appinfo)
                 .enabled_layer_names(&layers_names_raw)
-                .enabled_extension_names(&extension_names)
-                .push_next(&mut debug_info)
-                .push_next(&mut validation_features);
+                .enabled_extension_names(&extension_names);
+
+            #[cfg(debug_assertions)]
+            let create_info = {
+                let mut create_info = create_info;
+                create_info =
+                    create_info.push_next(&mut debug_info).push_next(&mut validation_features);
+                create_info
+            };
 
             // SAFETY: `create_info` points to local data that lives through the
             // call, and no custom allocator is used.
@@ -181,23 +211,33 @@ impl VulkanBackend {
                 .attach_printable("failed to create vulkan instance")?
         };
 
+        #[cfg(debug_assertions)]
+        let mut inst =
+            VulkanInstance { debug_callback: None, debug_utils_loader: None, handle: raw };
+
+        #[cfg(not(debug_assertions))]
+        let inst = VulkanInstance { handle: raw };
+
         trace!("instance initialized");
 
-        let debug_utils_loader = debug_utils::Instance::new(entry, &raw);
-        // SAFETY: `debug_info` contains a valid static callback function and
-        // lives for the duration of the Vulkan call.
-        let debug_callback =
-            unsafe { debug_utils_loader.create_debug_utils_messenger(&debug_info, None) }
-                .map_err(report_vulkan_result)
-                .attach_printable("failed to create vulkan debug messenger")?;
+        #[cfg(debug_assertions)]
+        {
+            let loader = debug_utils::Instance::new(entry, &inst.handle);
 
-        trace!("debug messenger initialized");
+            // SAFETY: `debug_info` contains a valid static callback function and
+            // lives for the duration of the Vulkan call.
+            inst.debug_callback = Some(
+                unsafe { loader.create_debug_utils_messenger(&debug_info, None) }
+                    .map_err(report_vulkan_result)
+                    .attach_printable("failed to create vulkan debug messenger")?,
+            );
 
-        Ok(VulkanInstance {
-            debug_callback: Some(debug_callback),
-            debug_utils_loader: Some(debug_utils_loader),
-            handle: raw,
-        })
+            inst.debug_utils_loader = Some(loader);
+
+            trace!("debug messenger initialized");
+        }
+
+        Ok(inst)
     }
 }
 
@@ -205,6 +245,7 @@ fn report_vulkan_result(result: ash::vk::Result) -> Report<VulkanInstanceError> 
     Report::new(VulkanInstanceError::UnexpectedResult(result))
 }
 
+#[cfg(debug_assertions)]
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
     message_type: vk::DebugUtilsMessageTypeFlagsEXT,
@@ -235,10 +276,10 @@ unsafe extern "system" fn vulkan_debug_callback(
     let msg = format!("[{message_type:?}] {message_id_name} ({message_id_number}):\n{message}");
 
     match message_severity {
-        DebugUtilsMessageSeverityFlagsEXT::INFO => info!("{}", msg),
-        DebugUtilsMessageSeverityFlagsEXT::WARNING => warn!("{}", msg),
-        DebugUtilsMessageSeverityFlagsEXT::VERBOSE => trace!("{}", msg),
-        DebugUtilsMessageSeverityFlagsEXT::ERROR => error!("{}", msg),
+        vk::DebugUtilsMessageSeverityFlagsEXT::INFO => info!("{}", msg),
+        vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => warn!("{}", msg),
+        vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => trace!("{}", msg),
+        vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => error!("{}", msg),
         _ => (),
     }
 

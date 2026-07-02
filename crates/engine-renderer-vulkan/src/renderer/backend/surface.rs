@@ -20,6 +20,10 @@ pub(super) enum VulkanSurfaceError {
     /// Failed to retrieve surface formats
     #[error("no surface formats available")]
     NoSurfaceFormats,
+
+    /// Failed to retrieve surface present modes.
+    #[error("no surface present modes available")]
+    NoPresentModes,
 }
 
 pub(super) struct VulkanSurface {
@@ -38,12 +42,6 @@ pub(super) struct SurfaceConfig {
     pub(super) present_mode: PresentModeKHR,
 }
 
-impl From<VulkanSurface> for SurfaceKHR {
-    fn from(value: VulkanSurface) -> Self {
-        value.handle
-    }
-}
-
 impl Drop for VulkanSurface {
     fn drop(&mut self) {
         // SAFETY: `self.handle` was created by this loader with no custom allocator,
@@ -56,13 +54,6 @@ impl Drop for VulkanSurface {
     }
 }
 
-impl std::fmt::Debug for VulkanSurface {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: Use debug names here
-        f.debug_struct("<Vulkan Surface>").finish()
-    }
-}
-
 impl VulkanSurface {
     pub(super) fn get(&self) -> ash::vk::SurfaceKHR {
         self.handle
@@ -72,53 +63,66 @@ impl VulkanSurface {
         &self.loader
     }
 
-    // FIXME: Hm.. core::result::Result or error_stack::Result?
-
     pub(super) fn make_config(
         &mut self,
         physical_device: ash::vk::PhysicalDevice,
-        window_dimensions: Extent2D,
+        mut window_dimensions: Extent2D,
         vsync: bool,
     ) -> core::result::Result<SurfaceConfig, VulkanSurfaceError> {
         // SAFETY: `self.handle` is a live surface created from the same instance as
-        // `self.loader`, and `device.get_physical()` was selected from that instance.
+        // `self.loader`, and `physical_device` was selected from that instance.
         let capabilities = unsafe {
-            self.loader
-                .get_physical_device_surface_capabilities(physical_device, self.handle)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
-        };
+            self.loader.get_physical_device_surface_capabilities(physical_device, self.handle)
+        }
+        .map_err(VulkanSurfaceError::UnexpectedResult)?;
 
         // SAFETY: `self.handle` is a live surface created from the same instance as
-        // `self.loader`, and `device.get_physical()` was selected from that instance.
+        // `self.loader`, and `physical_device` was selected from that instance.
         let formats = unsafe {
-            self.loader
-                .get_physical_device_surface_formats(physical_device, self.handle)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
-        };
+            self.loader.get_physical_device_surface_formats(physical_device, self.handle)
+        }
+        .map_err(VulkanSurfaceError::UnexpectedResult)?;
 
         // SAFETY: `self.handle` is a live surface created from the same instance as
-        // `self.loader`, and `device.get_physical()` was selected from that instance.
+        // `self.loader`, and `physical_device` was selected from that instance.
         let present_modes = unsafe {
-            self.loader
-                .get_physical_device_surface_present_modes(physical_device, self.handle)
-                .map_err(VulkanSurfaceError::UnexpectedResult)?
-        };
+            self.loader.get_physical_device_surface_present_modes(physical_device, self.handle)
+        }
+        .map_err(VulkanSurfaceError::UnexpectedResult)?;
 
         let extent = if capabilities.current_extent.width == u32::MAX {
+            window_dimensions.width = window_dimensions
+                .width
+                .clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width);
+            window_dimensions.height = window_dimensions
+                .height
+                .clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height);
             window_dimensions
         } else {
             capabilities.current_extent
         };
 
-        let surface_format = formats
-            .iter()
-            .copied()
-            .find(|format| {
-                format.format == Format::B8G8R8A8_SRGB
-                    && format.color_space == ColorSpaceKHR::SRGB_NONLINEAR
-            })
-            .or_else(|| formats.first().copied())
-            .ok_or(VulkanSurfaceError::NoSurfaceFormats)?;
+        let preferred_format = SurfaceFormatKHR {
+            format: Format::B8G8R8A8_SRGB,
+            color_space: ColorSpaceKHR::SRGB_NONLINEAR,
+        };
+
+        let surface_format = match formats.as_slice() {
+            [] => return Err(VulkanSurfaceError::NoSurfaceFormats),
+            [format] if format.format == Format::UNDEFINED => preferred_format,
+            formats => formats
+                .iter()
+                .copied()
+                .find(|format| {
+                    format.format == preferred_format.format
+                        && format.color_space == preferred_format.color_space
+                })
+                .unwrap_or(formats[0]),
+        };
+
+        if present_modes.is_empty() {
+            return Err(VulkanSurfaceError::NoPresentModes);
+        }
 
         let present_mode = (!vsync)
             .then(|| present_modes.iter().copied().find(|mode| *mode == PresentModeKHR::IMMEDIATE))

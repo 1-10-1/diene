@@ -19,13 +19,18 @@ pub enum VulkanRendererError {
 }
 
 /// Vulkan-backed renderer state.
-#[derive(Debug)]
 pub struct VulkanRenderer {
     #[allow(dead_code)]
     vsync: bool,
 
     #[allow(dead_code)]
     backend: VulkanBackend,
+}
+
+impl std::fmt::Debug for VulkanRenderer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VulkanRenderer").field("vsync", &self.vsync).finish_non_exhaustive()
+    }
 }
 
 /// Configures a [`VulkanRenderer`].

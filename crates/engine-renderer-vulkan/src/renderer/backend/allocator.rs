@@ -25,6 +25,8 @@ impl VulkanAllocator {
         let mut create_info =
             AllocatorCreateInfo::new(instance.get(), device.get_handle(), physical_device);
 
+        create_info.vulkan_api_version = instance::MIN_API_VERSION.into();
+
         create_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
 
         // SAFETY: All three arguments will outlive this allocator.
