@@ -54,6 +54,7 @@ impl Drop for VulkanLogicalDevice {
             let _ = self.handle.device_wait_idle();
             self.handle.destroy_device(None);
         }
+
         trace!("device destroyed");
     }
 }

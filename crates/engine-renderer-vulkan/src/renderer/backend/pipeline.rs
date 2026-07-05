@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use ash::vk;
 use thiserror::Error;
 

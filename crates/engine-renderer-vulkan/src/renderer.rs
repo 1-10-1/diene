@@ -8,7 +8,6 @@ use self::backend::VulkanBackend;
 
 /// Errors returned by Vulkan renderer operations.
 #[derive(Debug, Error)]
-#[non_exhaustive]
 pub enum VulkanRendererError {
     /// Vulkan backend operation failed.
     #[error("vulkan backend failed")]
@@ -21,10 +20,7 @@ pub enum VulkanRendererError {
 
 /// Vulkan-backed renderer state.
 pub struct VulkanRenderer {
-    #[allow(dead_code)]
     vsync: bool,
-
-    #[allow(dead_code)]
     backend: VulkanBackend,
 }
 
