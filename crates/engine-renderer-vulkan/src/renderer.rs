@@ -21,6 +21,8 @@ pub enum VulkanRendererError {
 /// Vulkan-backed renderer state.
 pub struct VulkanRenderer {
     vsync: bool,
+
+    #[allow(dead_code)]
     backend: VulkanBackend,
 }
 

@@ -1,13 +1,13 @@
 [package]
-name = "diene"
+name = "diene-engine-shader"
 version = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 license = { workspace = true }
-description = "Top-level facade crate for the Diene game engine."
+description = "Backend-agnostic shader compilation for Diene."
 repository = { workspace = true }
 homepage = { workspace = true }
-documentation = "https://docs.rs/diene"
+documentation = "https://docs.rs/diene-engine-shader"
 categories = { workspace = true }
 keywords = { workspace = true }
 readme = "README.md"
@@ -17,7 +17,5 @@ publish = { workspace = true }
 workspace = true
 
 [dependencies]
-engine-core = { workspace = true }
-engine-renderer-api = { workspace = true }
-engine-shader = { workspace = true }
-engine-runtime = { workspace = true }
+shader-slang = { workspace = true }
+thiserror = { workspace = true }

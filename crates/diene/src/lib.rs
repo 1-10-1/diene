@@ -40,3 +40,11 @@ pub mod renderer {
         WindowHandle,
     };
 }
+
+/// Backend-agnostic shader compilation APIs.
+pub mod shader {
+    pub use engine_shader::{
+        CompiledEntrypoint, CompiledShader, ShaderCompileError, ShaderCompiler,
+        ShaderCompilerOptions, ShaderEntrypoint, ShaderStage,
+    };
+}

@@ -18,10 +18,10 @@ workspace = true
 
 [dependencies]
 engine-renderer-api = { workspace = true }
+engine-shader = { workspace = true }
 common = { workspace = true }
 
 thiserror = { workspace = true }
-shader-slang = { workspace = true }
 error-stack = { workspace = true }
 ash = { workspace = true }
 ash-window = { workspace = true }

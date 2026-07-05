@@ -373,6 +373,7 @@ dependencies = [
  "diene-engine-core",
  "diene-engine-renderer-api",
  "diene-engine-runtime",
+ "diene-engine-shader",
 ]
 
 [[package]]
@@ -413,9 +414,9 @@ dependencies = [
  "ash-window",
  "diene-common",
  "diene-engine-renderer-api",
+ "diene-engine-shader",
  "error-stack",
  "raw-window-handle",
- "shader-slang",
  "thiserror 2.0.18",
  "vk-mem",
 ]
@@ -429,6 +430,14 @@ dependencies = [
  "diene-engine-renderer-api",
  "diene-engine-renderer-vulkan",
  "error-stack",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "diene-engine-shader"
+version = "0.1.0"
+dependencies = [
+ "shader-slang",
  "thiserror 2.0.18",
 ]
 

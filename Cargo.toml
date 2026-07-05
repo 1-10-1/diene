@@ -7,6 +7,7 @@ members = [
     "crates/engine-renderer-api",
     "crates/engine-renderer-vulkan",
     "crates/engine-runtime",
+    "crates/engine-shader",
     "crates/sandbox",
 ]
 default-members = ["crates/sandbox"]
@@ -28,6 +29,7 @@ engine-core = { package = "diene-engine-core", path = "crates/engine-core", vers
 engine-renderer-api = { package = "diene-engine-renderer-api", path = "crates/engine-renderer-api", version = "0.1.0" }
 engine-renderer-vulkan = { package = "diene-engine-renderer-vulkan", path = "crates/engine-renderer-vulkan", version = "0.1.0" }
 engine-runtime = { package = "diene-engine-runtime", path = "crates/engine-runtime", version = "0.1.0" }
+engine-shader = { package = "diene-engine-shader", path = "crates/engine-shader", version = "0.1.0" }
 
 anyhow = "1"
 ash = "0.38.0"
