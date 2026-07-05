@@ -334,28 +334,35 @@ impl ShaderCompiler {
     ) -> core::result::Result<Self, ShaderCompileError> {
         let global_session =
             slang::GlobalSession::new().ok_or(ShaderCompileError::GlobalSessionCreation)?;
+
         let spirv_profile = global_session.find_profile(&options.spirv_profile);
+
         let targets = [
             slang::TargetDesc::default().format(slang::CompileTarget::Spirv).profile(spirv_profile),
             slang::TargetDesc::default()
                 .format(slang::CompileTarget::SpirvAsm)
                 .profile(spirv_profile),
         ];
+
         let search_paths = options
             .search_paths
             .iter()
             .map(|path| path_to_cstring(path))
             .collect::<core::result::Result<Vec<_>, _>>()?;
+
         let search_path_ptrs = search_paths.iter().map(|path| path.as_ptr()).collect::<Vec<_>>();
+
         let compiler_options = slang::CompilerOptions::default()
             .language(slang::SourceLanguage::Slang)
             .optimization(slang::OptimizationLevel::Maximal)
             .debug_information(slang::DebugInfoLevel::Maximal)
             .matrix_layout_column(true);
+
         let session_desc = slang::SessionDesc::default()
             .targets(&targets)
             .search_paths(&search_path_ptrs)
             .options(&compiler_options);
+
         let session = global_session
             .create_session(&session_desc)
             .ok_or(ShaderCompileError::SessionCreation)?;
@@ -418,20 +425,25 @@ impl ShaderCompiler {
             self.session.create_composite_component_type(&component_types).map_err(|source| {
                 ShaderCompileError::CompositionFailure { module: module_name.clone(), source }
             })?;
+
         let linked_program = program.link().map_err(|source| ShaderCompileError::LinkFailure {
             module: module_name.clone(),
             source,
         })?;
+
         let spirv = linked_program.target_code(SPIRV_TARGET).map_err(|source| {
             ShaderCompileError::TargetCodeGenerationFailure { module: module_name.clone(), source }
         })?;
+
         let assembly = linked_program.target_code(SPIRV_ASSEMBLY_TARGET).map_err(|source| {
             ShaderCompileError::TargetCodeGenerationFailure { module: module_name.clone(), source }
         })?;
+
         let spirv_assembly = assembly.as_slice().to_vec();
 
         if let Some(output_dir) = &self.options.assembly_output_dir {
             let assembly_path = output_dir.join(format!("{module_name}.slang.asm"));
+
             std::fs::write(&assembly_path, &spirv_assembly).map_err(|source| {
                 ShaderCompileError::AssemblyWriteFailure { path: assembly_path, source }
             })?;
