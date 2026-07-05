@@ -9,7 +9,7 @@ use engine_core::app::{
 use engine_renderer_api::{
     BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory,
 };
-use engine_renderer_vulkan::renderer::VulkanRendererBuilder;
+use engine_renderer_vulkan::VulkanRendererBuilder;
 use error_stack::ResultExt;
 use thiserror::Error;
 

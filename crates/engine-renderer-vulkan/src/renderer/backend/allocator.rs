@@ -1,14 +1,14 @@
 use thiserror::Error;
 use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo};
 
-use crate::renderer::backend::{device, instance};
+use crate::renderer::backend::{call_error::VulkanCallError, device, instance};
 
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
 pub(super) enum VulkanAllocatorError {
     /// Vulkan API call returned an error value.
-    #[error("vulkan result has an error value: {0}")]
-    UnexpectedResult(ash::vk::Result),
+    #[error(transparent)]
+    UnexpectedResult(#[from] VulkanCallError),
 }
 
 #[allow(dead_code)]
@@ -21,7 +21,7 @@ impl VulkanAllocator {
         instance: &instance::VulkanInstance,
         device: &device::VulkanLogicalDevice,
         physical_device: ash::vk::PhysicalDevice,
-    ) -> error_stack::Result<Self, VulkanAllocatorError> {
+    ) -> core::result::Result<Self, VulkanAllocatorError> {
         let mut create_info =
             AllocatorCreateInfo::new(instance.get(), device.get_handle(), physical_device);
 
@@ -30,8 +30,9 @@ impl VulkanAllocator {
         create_info.flags = AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
 
         // SAFETY: All three arguments will outlive this allocator.
-        let handle = unsafe { vk_mem::Allocator::new(create_info) }
-            .map_err(VulkanAllocatorError::UnexpectedResult)?;
+        let handle = vk_try!("create Vulkan memory allocator", unsafe {
+            vk_mem::Allocator::new(create_info)
+        });
 
         Ok(Self { handle })
     }

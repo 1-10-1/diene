@@ -6,11 +6,10 @@ use std::ffi::{CStr, c_char};
 use ash::ext::debug_utils;
 use ash::vk;
 use common::logging::macros::*;
-use error_stack::{Report, ResultExt};
 use raw_window_handle::RawDisplayHandle;
 use thiserror::Error;
 
-use super::VulkanBackend;
+use crate::renderer::backend::call_error::VulkanCallError;
 
 pub(super) const MIN_API_VERSION: ApiVersion = ApiVersion::new(1, 3, 0);
 
@@ -53,11 +52,11 @@ impl std::fmt::Display for ApiVersion {
 #[derive(Debug, Error)]
 pub(super) enum VulkanInstanceError {
     /// Vulkan API call returned an error value.
-    #[error("vulkan result has an error value: {0}")]
-    UnexpectedResult(ash::vk::Result),
+    #[error(transparent)]
+    UnexpectedResult(#[from] VulkanCallError),
 
-    #[error("insufficient vulkan API version")]
-    InsufficientVersion,
+    #[error("insufficient vulkan API version: got {got}, wanted {expected}")]
+    InsufficientVersion { expected: ApiVersion, got: ApiVersion },
 }
 
 pub(super) struct VulkanInstance {
@@ -106,33 +105,34 @@ impl Drop for VulkanInstance {
 
 impl std::fmt::Debug for VulkanInstance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO: Use debug names here
         f.debug_struct("<Vulkan Instance>").finish()
     }
 }
 
-impl VulkanBackend {
+impl VulkanInstance {
     /// Creates the Vulkan instance.
-    pub(super) fn create_instance(
+    pub(super) fn new(
         entry: &ash::Entry,
         display_handle: RawDisplayHandle,
-    ) -> error_stack::Result<VulkanInstance, VulkanInstanceError> {
+    ) -> core::result::Result<Self, VulkanInstanceError> {
         // SAFETY: `entry` was loaded successfully and this call only queries loader-supported
         // instance API version information.
-        if let Some(version) = unsafe { entry.try_enumerate_instance_version() }
-            .map_err(report_vulkan_result)
-            .attach_printable("failed to enumerate supported vulkan instance version")?
-            .map(ApiVersion::from)
-        {
+        let supported_version = vk_try!("enumerate Vulkan instance version", unsafe {
+            entry.try_enumerate_instance_version()
+        });
+
+        if let Some(version) = supported_version.map(ApiVersion::from) {
             if version < MIN_API_VERSION {
-                return Err(Report::new(VulkanInstanceError::InsufficientVersion)
-                    .attach_printable(format!(
-                        "required api version {MIN_API_VERSION}, supported api version {version}"
-                    )));
+                return Err(VulkanInstanceError::InsufficientVersion {
+                    expected: MIN_API_VERSION,
+                    got: version,
+                });
             }
         } else {
-            return Err(Report::new(VulkanInstanceError::InsufficientVersion)
-                .attach_printable(format!("required api version {MIN_API_VERSION}")));
+            return Err(VulkanInstanceError::InsufficientVersion {
+                expected: MIN_API_VERSION,
+                got: ApiVersion::new(1, 0, 0),
+            });
         }
 
         #[cfg(debug_assertions)]
@@ -145,10 +145,11 @@ impl VulkanBackend {
             layer_names.iter().map(|raw_name| raw_name.as_ptr()).collect();
 
         let extension_names = {
-            let extension_names = ash_window::enumerate_required_extensions(display_handle)
-                .map_err(report_vulkan_result)
-                .attach_printable("failed to enumerate required window-system vulkan extensions")?
-                .to_vec();
+            let extension_names = vk_try!(
+                "enumerate required window-system Vulkan extensions",
+                ash_window::enumerate_required_extensions(display_handle),
+            )
+            .to_vec();
 
             #[cfg(debug_assertions)]
             {
@@ -206,17 +207,14 @@ impl VulkanBackend {
 
             // SAFETY: `create_info` points to local data that lives through the
             // call, and no custom allocator is used.
-            unsafe { entry.create_instance(&create_info, None) }
-                .map_err(report_vulkan_result)
-                .attach_printable("failed to create vulkan instance")?
+            vk_try!("create Vulkan instance", unsafe { entry.create_instance(&create_info, None) })
         };
 
         #[cfg(debug_assertions)]
-        let mut inst =
-            VulkanInstance { debug_callback: None, debug_utils_loader: None, handle: raw };
+        let mut inst = Self { debug_callback: None, debug_utils_loader: None, handle: raw };
 
         #[cfg(not(debug_assertions))]
-        let inst = VulkanInstance { handle: raw };
+        let inst = Self { handle: raw };
 
         trace!("instance initialized");
 
@@ -226,11 +224,9 @@ impl VulkanBackend {
 
             // SAFETY: `debug_info` contains a valid static callback function and
             // lives for the duration of the Vulkan call.
-            inst.debug_callback = Some(
-                unsafe { loader.create_debug_utils_messenger(&debug_info, None) }
-                    .map_err(report_vulkan_result)
-                    .attach_printable("failed to create vulkan debug messenger")?,
-            );
+            inst.debug_callback = Some(vk_try!("create Vulkan debug messenger", unsafe {
+                loader.create_debug_utils_messenger(&debug_info, None)
+            }));
 
             inst.debug_utils_loader = Some(loader);
 
@@ -239,10 +235,6 @@ impl VulkanBackend {
 
         Ok(inst)
     }
-}
-
-fn report_vulkan_result(result: ash::vk::Result) -> Report<VulkanInstanceError> {
-    Report::new(VulkanInstanceError::UnexpectedResult(result))
 }
 
 #[cfg(debug_assertions)]

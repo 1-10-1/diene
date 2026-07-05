@@ -1,7 +1,12 @@
+#[macro_use]
+mod call_error;
+
 mod allocator;
 mod command;
 mod device;
 mod instance;
+mod pipeline;
+mod shader;
 mod surface;
 mod swapchain;
 
@@ -56,6 +61,7 @@ pub(super) enum VulkanBackendError {
 
 #[allow(dead_code)]
 pub(super) struct VulkanBackend {
+    // Rust drops fields in declaration order. Keep Vulkan children above their parents.
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
     swapchain: swapchain::VulkanSwapchain,
@@ -91,38 +97,38 @@ impl VulkanBackend {
             Report::new(VulkanBackendError::EntryLoadFailure).attach_printable(err.to_string())
         })?;
 
-        let instance = Self::create_instance(&entry, display_handle)
+        let instance = instance::VulkanInstance::new(&entry, display_handle)
             .change_context(VulkanBackendError::InstanceOperation)?;
 
-        let mut surface = Self::create_surface(&entry, &instance, display_handle, window_handle)
+        let surface = surface::VulkanSurface::new(&entry, &instance, display_handle, window_handle)
             .change_context(VulkanBackendError::SurfaceOperation)?;
 
-        let device = Self::create_device(&instance, &surface)
+        let device = device::VulkanDevice::new(&instance, &surface)
             .change_context(VulkanBackendError::DeviceOperation)?;
 
         let RenderExtent { width, height } = rw.size();
 
         let surface_config = surface
-            .make_config(device.get_physical(), Extent2D { width, height }, vsync)
+            .make_config(device.physical(), Extent2D { width, height }, vsync)
             .change_context(VulkanBackendError::RefreshSurface)?;
 
         // WARN: The C++ equivalent recreates fences and semaphores in the
         // constructor for some reason.
-        // Figure out the reason, and if valid, implement it.
-        let swapchain = Self::create_swapchain(
+        // Figure out the reason, and if valid, implement that.
+        let swapchain = swapchain::VulkanSwapchain::new(
             &instance,
-            device.get_logical().clone(),
+            device.logical().clone(),
             &surface,
             &surface_config,
         )
         .change_context(VulkanBackendError::SwapchainOperation)?;
 
         let allocator =
-            allocator::VulkanAllocator::new(&instance, device.get_logical(), device.get_physical())
+            allocator::VulkanAllocator::new(&instance, device.logical(), device.physical())
                 .change_context(VulkanBackendError::AllocatorOperation)?;
 
         let command =
-            command::VulkanCommand::new(device.get_logical().clone(), device.get_queue_families())
+            command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
 
         Ok(Self { command, allocator, swapchain, surface_config, device, surface, instance, entry })

@@ -4,8 +4,8 @@ use ash::vk;
 use common::logging::macros::*;
 use thiserror::Error;
 
-use super::VulkanBackend;
 use crate::renderer::backend::{
+    call_error::VulkanCallError,
     device::{self},
     instance::VulkanInstance,
     surface::{SurfaceConfig, VulkanSurface},
@@ -15,8 +15,8 @@ use crate::renderer::backend::{
 #[derive(Debug, Error)]
 pub(super) enum VulkanSwapchainError {
     /// Vulkan API call returned an error value.
-    #[error("vulkan result has an error value: {0}")]
-    UnexpectedResult(ash::vk::Result),
+    #[error(transparent)]
+    UnexpectedResult(#[from] VulkanCallError),
 
     /// Surface does not support presenting color attachment images.
     #[error("surface does not support color attachment swapchain images")]
@@ -59,8 +59,8 @@ impl VulkanSwapchain {
     }
 }
 
-impl VulkanBackend {
-    pub(super) fn create_swapchain(
+impl VulkanSwapchain {
+    pub(super) fn new(
         instance: &VulkanInstance,
         device: Arc<device::VulkanLogicalDevice>,
         surface: &VulkanSurface,
@@ -72,29 +72,17 @@ impl VulkanBackend {
             surface_format,
             present_mode,
         }: &SurfaceConfig,
-    ) -> core::result::Result<VulkanSwapchain, VulkanSwapchainError> {
+    ) -> core::result::Result<Self, VulkanSwapchainError> {
         let loader = ash::khr::swapchain::Device::new(instance.get(), device.get_handle());
 
-        let mut desired_image_count = capabilities.min_image_count + 1;
-
-        if capabilities.max_image_count > 0 && desired_image_count > capabilities.max_image_count {
-            desired_image_count = capabilities.max_image_count;
-        }
+        let desired_image_count = choose_image_count(capabilities);
 
         let image_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT;
         if !capabilities.supported_usage_flags.contains(image_usage) {
             return Err(VulkanSwapchainError::UnsupportedColorAttachment);
         }
 
-        let composite_alpha = [
-            vk::CompositeAlphaFlagsKHR::OPAQUE,
-            vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED,
-            vk::CompositeAlphaFlagsKHR::POST_MULTIPLIED,
-            vk::CompositeAlphaFlagsKHR::INHERIT,
-        ]
-        .into_iter()
-        .find(|mode| capabilities.supported_composite_alpha.contains(*mode))
-        .ok_or(VulkanSwapchainError::UnsupportedCompositeAlpha)?;
+        let composite_alpha = choose_composite_alpha(capabilities)?;
 
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface.get())
@@ -112,13 +100,11 @@ impl VulkanBackend {
 
         // SAFETY: `swapchain_loader` is alive, and `swapchain_create_info`
         // references the surface constructed under the same instance.
-        let handle = unsafe {
-            loader
-                .create_swapchain(&swapchain_create_info, None)
-                .map_err(VulkanSwapchainError::UnexpectedResult)?
-        };
+        let handle = vk_try!("create swapchain", unsafe {
+            loader.create_swapchain(&swapchain_create_info, None)
+        });
 
-        let mut sc = VulkanSwapchain {
+        let mut sc = Self {
             loader,
             device,
             handle,
@@ -127,8 +113,8 @@ impl VulkanBackend {
         };
 
         // SAFETY: `handle` was constructed through `swapchain_loader`.
-        sc.present_images = unsafe { sc.loader.get_swapchain_images(handle) }
-            .map_err(VulkanSwapchainError::UnexpectedResult)?;
+        sc.present_images =
+            vk_try!("get swapchain images", unsafe { sc.loader.get_swapchain_images(handle) });
 
         sc.present_image_views = Vec::with_capacity(sc.present_images.len());
 
@@ -152,9 +138,9 @@ impl VulkanBackend {
                 .image(image);
 
             // SAFETY: The underlying image was constructed through the same device.
-            let image_view =
-                unsafe { sc.device.get_handle().create_image_view(&create_view_info, None) }
-                    .map_err(VulkanSwapchainError::UnexpectedResult)?;
+            let image_view = vk_try!("create swapchain image view", unsafe {
+                sc.device.get_handle().create_image_view(&create_view_info, None)
+            });
 
             sc.present_image_views.push(image_view);
         }
@@ -162,5 +148,70 @@ impl VulkanBackend {
         trace!("swapchain initialized");
 
         Ok(sc)
+    }
+}
+
+fn choose_image_count(capabilities: &vk::SurfaceCapabilitiesKHR) -> u32 {
+    let desired = capabilities.min_image_count + 1;
+
+    if capabilities.max_image_count > 0 && desired > capabilities.max_image_count {
+        capabilities.max_image_count
+    } else {
+        desired
+    }
+}
+
+fn choose_composite_alpha(
+    capabilities: &vk::SurfaceCapabilitiesKHR,
+) -> core::result::Result<vk::CompositeAlphaFlagsKHR, VulkanSwapchainError> {
+    [
+        vk::CompositeAlphaFlagsKHR::OPAQUE,
+        vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED,
+        vk::CompositeAlphaFlagsKHR::POST_MULTIPLIED,
+        vk::CompositeAlphaFlagsKHR::INHERIT,
+    ]
+    .into_iter()
+    .find(|mode| capabilities.supported_composite_alpha.contains(*mode))
+    .ok_or(VulkanSwapchainError::UnsupportedCompositeAlpha)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_count_uses_one_more_than_min_when_under_max() {
+        let capabilities = vk::SurfaceCapabilitiesKHR {
+            min_image_count: 2,
+            max_image_count: 4,
+            ..Default::default()
+        };
+
+        assert_eq!(choose_image_count(&capabilities), 3);
+    }
+
+    #[test]
+    fn image_count_clamps_to_max_when_needed() {
+        let capabilities = vk::SurfaceCapabilitiesKHR {
+            min_image_count: 2,
+            max_image_count: 2,
+            ..Default::default()
+        };
+
+        assert_eq!(choose_image_count(&capabilities), 2);
+    }
+
+    #[test]
+    fn composite_alpha_prefers_opaque() {
+        let capabilities = vk::SurfaceCapabilitiesKHR {
+            supported_composite_alpha: vk::CompositeAlphaFlagsKHR::INHERIT
+                | vk::CompositeAlphaFlagsKHR::OPAQUE,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            choose_composite_alpha(&capabilities).ok(),
+            Some(vk::CompositeAlphaFlagsKHR::OPAQUE)
+        );
     }
 }

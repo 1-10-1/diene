@@ -8,6 +8,7 @@ use self::backend::VulkanBackend;
 
 /// Errors returned by Vulkan renderer operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum VulkanRendererError {
     /// Vulkan backend operation failed.
     #[error("vulkan backend failed")]
@@ -54,7 +55,7 @@ impl VulkanRendererBuilder {
         let backend =
             VulkanBackend::new(window, self.vsync).change_context(VulkanRendererError::Backend)?;
 
-        VulkanRenderer::new(self.vsync, backend)
+        Ok(VulkanRenderer::new(self.vsync, backend))
     }
 
     /// Enables or disables vertical synchronization.
@@ -71,8 +72,8 @@ impl VulkanRenderer {
         VulkanRendererBuilder::default()
     }
 
-    fn new(vsync: bool, backend: VulkanBackend) -> error_stack::Result<Self, VulkanRendererError> {
-        Ok(Self { vsync, backend })
+    fn new(vsync: bool, backend: VulkanBackend) -> Self {
+        Self { vsync, backend }
     }
 }
 
