@@ -184,4 +184,8 @@ impl VulkanDevice {
     pub(super) fn queue_families(&self) -> &QueueFamilyIndices {
         &self.queue_families
     }
+
+    pub(super) fn graphics_queue(&self) -> vk::Queue {
+        self.graphics_queue
+    }
 }

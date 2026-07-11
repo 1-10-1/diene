@@ -3,7 +3,7 @@ use std::panic::Location;
 use thiserror::Error;
 
 #[derive(Error)]
-pub(in crate::renderer::backend) struct VulkanCallError {
+pub(in crate::renderer) struct VulkanCallError {
     operation: &'static str,
     result: ash::vk::Result,
     location: &'static Location<'static>,

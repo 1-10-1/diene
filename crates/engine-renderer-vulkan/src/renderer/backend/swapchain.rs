@@ -59,10 +59,35 @@ impl VulkanSwapchain {
     pub(super) fn get(&self) -> ash::vk::SwapchainKHR {
         self.handle
     }
+
+    pub(super) fn loader(&self) -> &ash::khr::swapchain::Device {
+        &self.loader
+    }
+
+    pub(super) fn image(&self, index: u32) -> Option<vk::Image> {
+        usize::try_from(index).ok().and_then(|index| self.present_images.get(index)).copied()
+    }
+
+    pub(super) fn image_view(&self, index: u32) -> Option<vk::ImageView> {
+        usize::try_from(index).ok().and_then(|index| self.present_image_views.get(index)).copied()
+    }
+
+    pub(super) fn image_count(&self) -> usize {
+        self.present_images.len()
+    }
 }
 
 impl VulkanSwapchain {
     pub(super) fn new(
+        instance: &VulkanInstance,
+        device: Arc<device::VulkanLogicalDevice>,
+        surface: &VulkanSurface,
+        surface_config: &SurfaceConfig,
+    ) -> core::result::Result<Self, VulkanSwapchainError> {
+        Self::new_replacing(instance, device, surface, surface_config, vk::SwapchainKHR::null())
+    }
+
+    pub(super) fn new_replacing(
         instance: &VulkanInstance,
         device: Arc<device::VulkanLogicalDevice>,
         surface: &VulkanSurface,
@@ -74,6 +99,7 @@ impl VulkanSwapchain {
             surface_format,
             present_mode,
         }: &SurfaceConfig,
+        old_swapchain: vk::SwapchainKHR,
     ) -> core::result::Result<Self, VulkanSwapchainError> {
         let loader = ash::khr::swapchain::Device::new(instance.handle(), device.handle());
 
@@ -98,7 +124,8 @@ impl VulkanSwapchain {
             .composite_alpha(composite_alpha)
             .present_mode(*present_mode)
             .clipped(true)
-            .image_array_layers(1);
+            .image_array_layers(1)
+            .old_swapchain(old_swapchain);
 
         // SAFETY: `swapchain_loader` is alive, and `swapchain_create_info`
         // references the surface constructed under the same instance.

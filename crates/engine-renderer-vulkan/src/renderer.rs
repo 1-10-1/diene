@@ -90,14 +90,14 @@ impl Renderer for VulkanRenderer {
     type Error = VulkanRendererError;
 
     fn prepare_frame(&mut self) -> error_stack::Result<(), Self::Error> {
-        Ok(())
+        self.backend.prepare_frame().change_context(VulkanRendererError::Backend)
     }
 
     fn render(&mut self) -> error_stack::Result<(), Self::Error> {
-        Ok(())
+        self.backend.render().change_context(VulkanRendererError::Backend)
     }
 
-    fn resize(&mut self, _extent: RenderExtent) -> error_stack::Result<(), Self::Error> {
-        Ok(())
+    fn resize(&mut self, extent: RenderExtent) -> error_stack::Result<(), Self::Error> {
+        self.backend.resize(extent).change_context(VulkanRendererError::Backend)
     }
 }

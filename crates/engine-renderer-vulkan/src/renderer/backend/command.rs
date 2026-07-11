@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ash::vk::{self, CommandPool, Handle};
+use ash::vk::{self, CommandBuffer, CommandPool, Handle};
 use thiserror::Error;
 
 use crate::renderer::backend::{
@@ -14,6 +14,10 @@ pub(super) enum VulkanCommandError {
     /// Vulkan API call returned an error value.
     #[error(transparent)]
     UnexpectedResult(#[from] VulkanCallError),
+
+    /// Command buffer allocation succeeded without returning a command buffer.
+    #[error("graphics command buffer allocation returned no buffers")]
+    NoCommandBufferReturned,
 }
 
 #[allow(dead_code)]
@@ -21,7 +25,7 @@ pub(super) struct VulkanCommand {
     graphics_pool: ash::vk::CommandPool,
     transfer_pool: ash::vk::CommandPool,
     compute_pool: ash::vk::CommandPool,
-    graphics_command_buffers: Vec<ash::vk::CommandBuffer>,
+    graphics_command_buffer: ash::vk::CommandBuffer,
     device: Arc<device::VulkanLogicalDevice>,
 }
 
@@ -56,7 +60,7 @@ impl VulkanCommand {
             graphics_pool: CommandPool::default(),
             transfer_pool: CommandPool::default(),
             compute_pool: CommandPool::default(),
-            graphics_command_buffers: Vec::default(),
+            graphics_command_buffer: CommandBuffer::default(),
             device,
         };
 
@@ -109,7 +113,7 @@ impl VulkanCommand {
         );
 
         // SAFETY: `device` is alive.
-        command.graphics_command_buffers = vk_try!("allocate graphics command buffers", unsafe {
+        let mut graphics_command_buffers = vk_try!("allocate graphics command buffers", unsafe {
             command.device.handle().allocate_command_buffers(
                 &vk::CommandBufferAllocateInfo::default()
                     .command_pool(command.graphics_pool)
@@ -118,14 +122,19 @@ impl VulkanCommand {
             )
         });
 
+        command.graphics_command_buffer =
+            graphics_command_buffers.pop().ok_or(VulkanCommandError::NoCommandBufferReturned)?;
+
         #[cfg(debug_assertions)]
-        for command_buffer in command.graphics_command_buffers.iter().copied() {
-            vk_try!(
-                "name graphics command buffer",
-                command.device.set_name(c"Graphics Command Buffer", command_buffer),
-            );
-        }
+        vk_try!(
+            "name graphics command buffer",
+            command.device.set_name(c"Graphics Command Buffer", command.graphics_command_buffer),
+        );
 
         Ok(command)
+    }
+
+    pub(super) fn graphics_command_buffer(&self) -> vk::CommandBuffer {
+        self.graphics_command_buffer
     }
 }
