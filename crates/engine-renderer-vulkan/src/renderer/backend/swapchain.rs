@@ -3,7 +3,6 @@ use std::ffi::CString;
 use std::sync::Arc;
 
 use ash::vk;
-use common::logging::macros::*;
 use thiserror::Error;
 
 use crate::renderer::backend::{
@@ -49,8 +48,6 @@ impl Drop for VulkanSwapchain {
         // SAFETY: `self.loader` created `self.handle` during construction.
         // This is called exactly once during drop.
         unsafe { self.loader.destroy_swapchain(self.handle, None) };
-
-        trace!("swapchain destroyed");
     }
 }
 
@@ -142,7 +139,7 @@ impl VulkanSwapchain {
         };
 
         #[cfg(debug_assertions)]
-        vk_try!("name swapchain", sc.device.set_name(c"Swapchain", sc.handle));
+        vk_try!("name swapchain", sc.device.set_name(c"swapchain", sc.handle));
 
         // SAFETY: `handle` was constructed through `swapchain_loader`.
         sc.present_images =
@@ -150,7 +147,7 @@ impl VulkanSwapchain {
 
         #[cfg(debug_assertions)]
         for (index, image) in sc.present_images.iter().copied().enumerate() {
-            if let Ok(name) = CString::new(format!("Swapchain Image {index}")) {
+            if let Ok(name) = CString::new(format!("swapchain image {index}")) {
                 vk_try!("name swapchain image", sc.device.set_name(name.as_c_str(), image));
             }
         }
@@ -184,15 +181,13 @@ impl VulkanSwapchain {
             sc.present_image_views.push(image_view);
 
             #[cfg(debug_assertions)]
-            if let Ok(name) = CString::new(format!("Swapchain Image View {index}")) {
+            if let Ok(name) = CString::new(format!("swapchain image view {index}")) {
                 vk_try!(
                     "name swapchain image view",
                     sc.device.set_name(name.as_c_str(), image_view),
                 );
             }
         }
-
-        trace!("swapchain initialized");
 
         Ok(sc)
     }

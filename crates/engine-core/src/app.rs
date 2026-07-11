@@ -52,8 +52,7 @@ pub struct ApplicationHost {
     window: Option<Window>,
     error: Option<ApplicationHostError>,
 
-    #[allow(dead_code)]
-    stopwatch: common::timer::Stopwatch,
+    _stopwatch: common::timer::Stopwatch,
 }
 
 /// Configures an [`ApplicationHost`].
@@ -89,7 +88,7 @@ impl ApplicationHostBuilder {
             renderer: None,
             window: None,
             error: None,
-            stopwatch: timer,
+            _stopwatch: timer,
         })
     }
 }
@@ -133,11 +132,6 @@ impl ApplicationHost {
     }
 
     fn render_frame(&mut self, event_loop: &ActiveEventLoop) {
-        // WARN: This is only done for debug purposes. Be sure to remove it later!
-        if self.stopwatch.is_stopped() {
-            self.stopwatch.start();
-        }
-
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
@@ -149,13 +143,6 @@ impl ApplicationHost {
 
         if let Some(window) = &self.window {
             window.request_redraw();
-        }
-
-        let elapsed = self.stopwatch.elapsed().as_secs_f32();
-
-        if elapsed > 2.0 {
-            info!("{:.0} seconds elapsed, exitting gracefully...", elapsed);
-            event_loop.exit();
         }
     }
 
@@ -184,7 +171,7 @@ impl ApplicationHandler for ApplicationHost {
 
         let window = match Window::create(event_loop, &self.name) {
             Ok(window) => {
-                info!("[{}] created application window (Id: {:?})", self.name, window.id());
+                info!("[{}] created application window ({:?})", self.name, window.id());
                 window
             }
             Err(error) => {

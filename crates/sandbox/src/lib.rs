@@ -7,7 +7,7 @@ use engine_runtime::Application;
 pub fn run() -> anyhow::Result<()> {
     let _logger_guard = common::logging::init()?;
 
-    let app_name = "Diene Sandbox";
+    let app_name = "diene sandbox";
 
     let app = Application::builder().with_name(app_name).build()?;
 

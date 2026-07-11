@@ -20,7 +20,7 @@ OpExecutionMode %fragMain OriginUpperLeft
 );
 
 static float3 colors[3] = float3[](
-    float3(1.0, 0.0, 0.0),
+    float3(0.0, 0.0, 0.0),
     float3(0.0, 1.0, 0.0),
     float3(0.0, 0.0, 1.0)
 );
@@ -124,11 +124,11 @@ OpDecorate %gl_Position BuiltIn Position
 %103 = OpConstantComposite %_arr_v2float_int_3 %99 %101 %102
 %uint_2 = OpConstant %uint 2
 %_arr_v3float_int_3 = OpTypeArray %v3float %int_3
+%105 = OpConstantComposite %v3float %float_0 %float_0 %float_0
 %float_1 = OpConstant %float 1
-%106 = OpConstantComposite %v3float %float_1 %float_0 %float_0
 %107 = OpConstantComposite %v3float %float_0 %float_1 %float_0
 %108 = OpConstantComposite %v3float %float_0 %float_0 %float_1
-%109 = OpConstantComposite %_arr_v3float_int_3 %106 %107 %108
+%109 = OpConstantComposite %_arr_v3float_int_3 %105 %107 %108
 %uint_7 = OpConstant %uint 7
 %_ptr_Input_v3float = OpTypePointer Input %v3float
 %int_0 = OpConstant %int 0

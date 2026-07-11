@@ -56,7 +56,7 @@ impl VulkanFrameSync {
         #[cfg(debug_assertions)]
         vk_try!(
             "name image-available semaphore",
-            sync.device.set_name(c"Image Available Semaphore", sync.image_available),
+            sync.device.set_name(c"image available semaphore", sync.image_available),
         );
 
         for index in 0..swapchain_image_count {
@@ -66,7 +66,7 @@ impl VulkanFrameSync {
             });
 
             #[cfg(debug_assertions)]
-            if let Ok(name) = CString::new(format!("Render Finished Semaphore {index}")) {
+            if let Ok(name) = CString::new(format!("render finished semaphore {index}")) {
                 vk_try!(
                     "name render-finished semaphore",
                     sync.device.set_name(name.as_c_str(), semaphore),
@@ -84,7 +84,7 @@ impl VulkanFrameSync {
         #[cfg(debug_assertions)]
         vk_try!(
             "name in-flight frame fence",
-            sync.device.set_name(c"In-Flight Frame Fence", sync.in_flight),
+            sync.device.set_name(c"in-flight frame fence", sync.in_flight),
         );
 
         Ok(sync)

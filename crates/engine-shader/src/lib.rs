@@ -29,7 +29,7 @@ impl Default for ShaderCompilerOptions {
     fn default() -> Self {
         Self {
             search_paths: vec![PathBuf::from(DEFAULT_SEARCH_PATH)],
-            assembly_output_dir: Some(PathBuf::from(DEFAULT_SEARCH_PATH)),
+            assembly_output_dir: None,
             spirv_profile: DEFAULT_SPIRV_PROFILE.to_owned(),
         }
     }
@@ -283,7 +283,7 @@ impl CompiledEntrypoint {
 pub struct CompiledShader {
     module: String,
     spirv_words: Vec<u32>,
-    spirv_assembly: Vec<u8>,
+    spirv_assembly: Option<Vec<u8>>,
     entrypoints: Vec<CompiledEntrypoint>,
 }
 
@@ -299,8 +299,8 @@ impl CompiledShader {
     }
 
     /// Returns generated SPIR-V assembly bytes.
-    pub fn spirv_assembly(&self) -> &[u8] {
-        &self.spirv_assembly
+    pub fn spirv_assembly(&self) -> Option<&Vec<u8>> {
+        self.spirv_assembly.as_ref()
     }
 
     /// Returns compiled entrypoint metadata.
@@ -312,8 +312,8 @@ impl CompiledShader {
 /// Compiles Slang shader modules into backend-neutral SPIR-V artifacts.
 pub struct ShaderCompiler {
     session: slang::Session,
-    _global_session: slang::GlobalSession,
     options: ShaderCompilerOptions,
+    _global_session: slang::GlobalSession,
 }
 
 impl std::fmt::Debug for ShaderCompiler {
@@ -337,12 +337,17 @@ impl ShaderCompiler {
 
         let spirv_profile = global_session.find_profile(&options.spirv_profile);
 
-        let targets = [
+        let mut targets = vec![
             slang::TargetDesc::default().format(slang::CompileTarget::Spirv).profile(spirv_profile),
-            slang::TargetDesc::default()
-                .format(slang::CompileTarget::SpirvAsm)
-                .profile(spirv_profile),
         ];
+
+        if options.assembly_output_dir.is_some() {
+            targets.push(
+                slang::TargetDesc::default()
+                    .format(slang::CompileTarget::SpirvAsm)
+                    .profile(spirv_profile),
+            );
+        }
 
         let search_paths = options
             .search_paths
@@ -435,19 +440,24 @@ impl ShaderCompiler {
             ShaderCompileError::TargetCodeGenerationFailure { module: module_name.clone(), source }
         })?;
 
-        let assembly = linked_program.target_code(SPIRV_ASSEMBLY_TARGET).map_err(|source| {
-            ShaderCompileError::TargetCodeGenerationFailure { module: module_name.clone(), source }
-        })?;
+        let spirv_assembly = if let Some(output_dir) = &self.options.assembly_output_dir {
+            let assembly = linked_program.target_code(SPIRV_ASSEMBLY_TARGET).map_err(|source| {
+                ShaderCompileError::TargetCodeGenerationFailure {
+                    module: module_name.clone(),
+                    source,
+                }
+            })?;
 
-        let spirv_assembly = assembly.as_slice().to_vec();
-
-        if let Some(output_dir) = &self.options.assembly_output_dir {
             let assembly_path = output_dir.join(format!("{module_name}.slang.asm"));
 
-            std::fs::write(&assembly_path, &spirv_assembly).map_err(|source| {
+            std::fs::write(&assembly_path, assembly.as_slice()).map_err(|source| {
                 ShaderCompileError::AssemblyWriteFailure { path: assembly_path, source }
             })?;
-        }
+
+            Some(assembly.as_slice().to_vec())
+        } else {
+            None
+        };
 
         let spirv_words = spirv_words(&module_name, spirv.as_slice())?;
 

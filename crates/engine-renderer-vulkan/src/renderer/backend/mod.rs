@@ -11,10 +11,10 @@ mod shader;
 mod surface;
 mod swapchain;
 
-use std::rc::Rc;
+use std::{rc::Rc, time::Instant};
 
 use ash::vk::{self, Extent2D};
-use common::logging::macros::warn;
+use common::logging::macros::{debug, warn};
 use engine_renderer_api::{RenderExtent, RenderWindow};
 use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
@@ -165,9 +165,6 @@ impl VulkanBackend {
             .make_config(device.physical(), Extent2D { width, height }, vsync)
             .change_context(VulkanBackendError::RefreshSurface)?;
 
-        // WARN: The C++ equivalent recreates fences and semaphores in the
-        // constructor for some reason.
-        // Figure out the reason, and if valid, implement that.
         let swapchain = swapchain::VulkanSwapchain::new(
             &instance,
             device.logical().clone(),
@@ -184,19 +181,21 @@ impl VulkanBackend {
             command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
 
-        let compiler = Rc::new(
+        let shader_compiler = Rc::new(
             ShaderCompiler::with_options(
                 ShaderCompilerOptions::default()
                     .with_search_path("shaders")
-                    .with_spirv_profile("spirv_1_5")
-                    .with_assembly_output_dir("shaders"),
+                    .with_spirv_profile("spirv_1_5"),
             )
             .change_context(VulkanBackendError::ShaderCompilation)?,
         );
 
-        let shaders = shader::VulkanShaderManager::new(device.logical().clone(), compiler.clone());
+        let shaders =
+            shader::VulkanShaderManager::new(device.logical().clone(), shader_compiler.clone());
 
-        let compiled_main_shader = compiler
+        let start = Instant::now();
+
+        let compiled_main_shader = shader_compiler
             .compile(
                 "main",
                 [
@@ -211,6 +210,8 @@ impl VulkanBackend {
                 ],
             )
             .change_context(VulkanBackendError::ShaderCompilation)?;
+
+        debug!("took {:.2}ms to compile the main shader", start.elapsed().as_secs_f64() * 1000.0);
 
         let vk_main_shader = shaders
             .create_shader(&compiled_main_shader)
@@ -291,6 +292,7 @@ impl VulkanBackend {
                 .into());
             }
         };
+
         let render_finished = self
             .frame_sync
             .render_finished(image_index)
@@ -311,11 +313,14 @@ impl VulkanBackend {
         let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
             .semaphore(self.frame_sync.image_available())
             .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
+
         let command_buffer_infos =
             [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
+
         let signal_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
             .semaphore(render_finished)
             .stage_mask(vk::PipelineStageFlags2::ALL_COMMANDS)];
+
         let submit_infos = [vk::SubmitInfo2::default()
             .wait_semaphore_infos(&wait_semaphore_infos)
             .command_buffer_infos(&command_buffer_infos)
@@ -328,8 +333,11 @@ impl VulkanBackend {
         });
 
         let wait_semaphores = [render_finished];
+
         let swapchains = [self.swapchain.get()];
+
         let image_indices = [image_index];
+
         let present_info = vk::PresentInfoKHR::default()
             .wait_semaphores(&wait_semaphores)
             .swapchains(&swapchains)
@@ -407,6 +415,7 @@ impl VulkanBackend {
             self.swapchain.get(),
         )
         .map_err(|_| VulkanBackendError::SwapchainOperation)?;
+
         let frame_sync =
             frame::VulkanFrameSync::new(self.device.logical().clone(), swapchain.image_count())?;
 
@@ -417,7 +426,6 @@ impl VulkanBackend {
         Ok(())
     }
 
-    #[allow(clippy::as_conversions, clippy::cast_precision_loss)]
     fn record_triangle_commands(
         &self,
         command_buffer: vk::CommandBuffer,
@@ -427,11 +435,14 @@ impl VulkanBackend {
             .swapchain
             .image(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
+
         let image_view = self
             .swapchain
             .image_view(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
+
         let logical = self.device.logical().handle();
+
         let extent = self.surface_config.extent;
 
         // SAFETY: `command_buffer` is a reset primary command buffer owned by this backend.
@@ -458,12 +469,16 @@ impl VulkanBackend {
             .clear_value(vk::ClearValue {
                 color: vk::ClearColorValue { float32: [0.02, 0.02, 0.03, 1.0] },
             });
+
         let color_attachments = [color_attachment];
+
         let render_area = vk::Rect2D { offset: vk::Offset2D::default(), extent };
+
         let rendering_info = vk::RenderingInfo::default()
             .render_area(render_area)
             .layer_count(1)
             .color_attachments(&color_attachments);
+
         let viewport = vk::Viewport {
             x: 0.0,
             y: 0.0,

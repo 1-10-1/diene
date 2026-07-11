@@ -111,7 +111,7 @@ impl VulkanPipelineLayoutBuilder {
         let layout = VulkanPipelineLayout { device, handle };
 
         #[cfg(debug_assertions)]
-        vk_try!("name pipeline layout", layout.device.set_name(c"Pipeline Layout", layout.handle),);
+        vk_try!("name pipeline layout", layout.device.set_name(c"pipeline layout", layout.handle),);
 
         Ok(layout)
     }
@@ -622,7 +622,7 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
         let pipeline = VulkanGraphicsPipeline { device: logical, handle, name };
 
         #[cfg(debug_assertions)]
-        if let Ok(debug_name) = CString::new(format!("Graphics Pipeline: {}", pipeline.name))
+        if let Ok(debug_name) = CString::new(format!("graphics pipeline: {}", pipeline.name))
             && let Err(result) = pipeline.device.set_name(debug_name.as_c_str(), pipeline.handle)
         {
             return Err(VulkanCallError::new("name graphics pipeline", result).into());
@@ -635,7 +635,7 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
         };
 
         debug!(
-            "Took {:.2}ms to create graphics pipeline {} {} a cache",
+            "took {:.2}ms to create graphics pipeline {} {} a cache",
             start.elapsed().as_secs_f64() * 1000.0,
             pipeline.name,
             cache_status,
@@ -721,7 +721,7 @@ fn create_pipeline_cache(
             let cache = PipelineCache { device, handle };
 
             #[cfg(debug_assertions)]
-            if let Ok(debug_name) = CString::new(format!("Graphics Pipeline Cache: {name}")) {
+            if let Ok(debug_name) = CString::new(format!("graphics pipeline cache: {name}")) {
                 vk_try!(
                     "name graphics pipeline cache",
                     cache.device.set_name(debug_name.as_c_str(), cache.handle),

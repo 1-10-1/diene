@@ -105,7 +105,7 @@ impl VulkanShaderManager {
         });
 
         #[cfg(debug_assertions)]
-        if let Ok(name) = CString::new(format!("Shader Module: {}", compiled.module()))
+        if let Ok(name) = CString::new(format!("shader module: {}", compiled.module()))
             && let Err(result) = self.device.set_name(name.as_c_str(), module)
         {
             // SAFETY: `module` was just created from `self.device` and has not been handed to

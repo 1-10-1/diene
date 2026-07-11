@@ -285,8 +285,9 @@ unsafe extern "system" fn vulkan_debug_callback(
     }
 
     if !message.is_empty() {
-        let _ = writeln!(msg, "  message:");
+        let _ = writeln!(msg, "\n  message:");
         write_indented_lines(&mut msg, &message, 4);
+        let _ = writeln!(msg);
     }
 
     write_labels(&mut msg, "queue labels", queue_labels);
@@ -370,7 +371,6 @@ fn write_objects(buffer: &mut String, objects: &[vk::DebugUtilsObjectNameInfoEXT
         let handle = object.object_handle;
         let name = cstr_lossy(object.p_object_name, "<unnamed>");
 
-        let _ =
-            writeln!(buffer, "    {index}: {object_type:?} handle=0x{handle:016x} name=`{name}`");
+        let _ = writeln!(buffer, "    {index}: {object_type:?} handle=0x{handle:016x} name={name}");
     }
 }

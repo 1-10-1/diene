@@ -77,7 +77,7 @@ impl VulkanCommand {
         #[cfg(debug_assertions)]
         vk_try!(
             "name graphics command pool",
-            command.device.set_name(c"Graphics Command Pool", command.graphics_pool),
+            command.device.set_name(c"graphics command pool", command.graphics_pool),
         );
 
         // SAFETY: `device` is alive.
@@ -93,7 +93,7 @@ impl VulkanCommand {
         #[cfg(debug_assertions)]
         vk_try!(
             "name transfer command pool",
-            command.device.set_name(c"Transfer Command Pool", command.transfer_pool),
+            command.device.set_name(c"transfer command pool", command.transfer_pool),
         );
 
         // SAFETY: `device` is alive.
@@ -109,7 +109,7 @@ impl VulkanCommand {
         #[cfg(debug_assertions)]
         vk_try!(
             "name compute command pool",
-            command.device.set_name(c"Compute Command Pool", command.compute_pool),
+            command.device.set_name(c"compute command pool", command.compute_pool),
         );
 
         // SAFETY: `device` is alive.
@@ -128,7 +128,7 @@ impl VulkanCommand {
         #[cfg(debug_assertions)]
         vk_try!(
             "name graphics command buffer",
-            command.device.set_name(c"Graphics Command Buffer", command.graphics_command_buffer),
+            command.device.set_name(c"graphics command buffer", command.graphics_command_buffer),
         );
 
         Ok(command)

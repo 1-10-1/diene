@@ -54,7 +54,7 @@ pub(super) fn pick_physical(
 
         let _ = writeln!(
             failure_log_buf,
-            "Graphics card {name} was rejected due to the following failed conditions:"
+            "graphics card {name} was rejected due to the following failed conditions:"
         );
 
         let api_version: ApiVersion = properties.api_version.into();
@@ -62,7 +62,7 @@ pub(super) fn pick_physical(
         if api_version < instance::MIN_API_VERSION {
             let _ = writeln!(
                 failure_log_buf,
-                "\t- Minimum API version not supported (Required {}, found {api_version})",
+                "\t- minimum API version not supported (Required {}, found {api_version})",
                 instance::MIN_API_VERSION
             );
 
@@ -94,7 +94,7 @@ pub(super) fn pick_physical(
         }
 
         let Some(queue_families) = find_queue_family_indices(inst, physical, surf)? else {
-            let _ = writeln!(failure_log_buf, "\t- Necessary queues absent");
+            let _ = writeln!(failure_log_buf, "\t- necessary queues absent");
 
             trace!("{failure_log_buf}");
 
@@ -110,11 +110,11 @@ pub(super) fn pick_physical(
             );
 
         let extensions_supported = check_device_extension_support(inst, physical)?;
-        availability.push(("Necessary extensions supported", extensions_supported));
+        availability.push(("necessary extensions supported", extensions_supported));
 
         if extensions_supported {
             availability.push((
-                "Swapchain surface support adequate",
+                "swapchain surface support adequate",
                 check_swapchain_adequacy(surf, physical)?,
             ));
         }

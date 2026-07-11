@@ -32,6 +32,7 @@ engine-runtime = { package = "diene-engine-runtime", path = "crates/engine-runti
 engine-shader = { package = "diene-engine-shader", path = "crates/engine-shader", version = "0.1.0" }
 
 anyhow = "1"
+rayon = "1.12.0"
 ash = "0.38.0"
 shader-slang = "0.1.0"
 ash-window = "0.13.0"
@@ -87,10 +88,8 @@ panic_in_result_fn = "deny"
 
 expect_used = "warn"
 panic = "warn"
-as_conversions = "warn"
-cast_possible_truncation = "warn"
 cast_possible_wrap = "warn"
-cast_precision_loss = "warn"
+cast_possible_truncation = "warn"
 cast_sign_loss = "warn"
 enum_glob_use = "warn"
 large_enum_variant = "warn"
@@ -113,6 +112,7 @@ missing_panics_doc = "allow"
 too_many_lines = "allow"
 needless_pass_by_ref_mut = "allow"
 unnecessary_wraps = "allow"
+cast_precision_loss = "allow"
 
 [profile.dev]
 debug = 2

@@ -141,7 +141,7 @@ impl VulkanDevice {
         #[cfg(debug_assertions)]
         vk_try!(
             "name logical device",
-            device.logical.set_name(c"Logical Device", device.logical.handle().handle()),
+            device.logical.set_name(c"logical device", device.logical.handle().handle()),
         );
 
         let queue_sharing_label = |q1: u32, q2: u32| {
@@ -159,8 +159,8 @@ impl VulkanDevice {
             .into_owned();
 
         debug!(
-            "Created logical device with physical device {physical_name} (score: \
-             {score})\nCompute queue: {}\nTransfer queue: {}\nPresent queue: {}",
+            "created logical device with physical device {physical_name} (score: \
+             {score})\ncompute queue: {}\ntransfer queue: {}\npresent queue: {}",
             queue_sharing_label(queue_families.graphics, queue_families.compute),
             queue_sharing_label(queue_families.graphics, queue_families.transfer),
             queue_sharing_label(queue_families.graphics, queue_families.present),
