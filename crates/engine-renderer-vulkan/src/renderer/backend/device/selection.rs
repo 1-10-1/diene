@@ -30,8 +30,9 @@ pub(super) fn pick_physical(
 ) -> core::result::Result<DeviceCandidate, VulkanDeviceError> {
     // SAFETY: `inst` owns a valid Vulkan instance for the duration of device
     // selection.
-    let physical_devices =
-        vk_try!("enumerate physical devices", unsafe { inst.get().enumerate_physical_devices() });
+    let physical_devices = vk_try!("enumerate physical devices", unsafe {
+        inst.handle().enumerate_physical_devices()
+    });
 
     let mut best_candidate: Option<DeviceCandidate> = None;
 
@@ -39,7 +40,7 @@ pub(super) fn pick_physical(
         let mut props2 = vk::PhysicalDeviceProperties2::default();
 
         // SAFETY: `device` descends from `inst`, so this is valid.
-        unsafe { inst.get().get_physical_device_properties2(physical, &mut props2) };
+        unsafe { inst.handle().get_physical_device_properties2(physical, &mut props2) };
 
         let properties = props2.properties;
 
@@ -83,7 +84,7 @@ pub(super) fn pick_physical(
                 .push_next(&mut queried_features_13);
 
             // SAFETY: `device` descends from `inst`, so this is valid.
-            unsafe { inst.get().get_physical_device_features2(physical, &mut features) };
+            unsafe { inst.handle().get_physical_device_features2(physical, &mut features) };
 
             queried_features_10 = features.features;
 
@@ -170,7 +171,7 @@ fn check_device_extension_support(
 ) -> core::result::Result<bool, VulkanDeviceError> {
     // SAFETY: `device` descends from `inst`, so this is valid.
     let available_exts = vk_try!("enumerate device extension properties", unsafe {
-        inst.get().enumerate_device_extension_properties(device)
+        inst.handle().enumerate_device_extension_properties(device)
     });
 
     Ok(REQUIRED_EXTENSIONS.iter().all(|required| {
@@ -190,17 +191,17 @@ fn check_swapchain_adequacy(
 ) -> core::result::Result<bool, VulkanDeviceError> {
     // SAFETY: `surf` is a live surface created from the same instance as the physical device.
     let capabilities = vk_try!("query surface capabilities for device selection", unsafe {
-        surf.get_loader().get_physical_device_surface_capabilities(device, surf.get())
+        surf.loader().get_physical_device_surface_capabilities(device, surf.handle())
     });
 
     // SAFETY: `surf` is a live surface created from the same instance as the physical device.
     let formats = vk_try!("query surface formats for device selection", unsafe {
-        surf.get_loader().get_physical_device_surface_formats(device, surf.get())
+        surf.loader().get_physical_device_surface_formats(device, surf.handle())
     });
 
     // SAFETY: `surf` is a live surface created from the same instance as the physical device.
     let present_modes = vk_try!("query present modes for device selection", unsafe {
-        surf.get_loader().get_physical_device_surface_present_modes(device, surf.get())
+        surf.loader().get_physical_device_surface_present_modes(device, surf.handle())
     });
 
     let supports_known_composite_alpha = [

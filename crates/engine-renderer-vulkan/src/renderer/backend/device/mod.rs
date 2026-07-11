@@ -107,25 +107,24 @@ impl VulkanDevice {
         // SAFETY: `physical` was selected from `instance`, and `device_create_info` only references
         // local data that lives through this call.
         let logical_handle = vk_try!("create logical device", unsafe {
-            instance.get().create_device(physical, &device_create_info, None)
+            instance.handle().create_device(physical, &device_create_info, None)
         });
 
-        let logical = Arc::new(VulkanLogicalDevice::new(instance.get(), logical_handle));
+        let logical = Arc::new(VulkanLogicalDevice::new(instance.handle(), logical_handle));
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
         let graphics_queue =
-            unsafe { logical.get_handle().get_device_queue(queue_families.graphics, 0) };
+            unsafe { logical.handle().get_device_queue(queue_families.graphics, 0) };
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
-        let compute_queue =
-            unsafe { logical.get_handle().get_device_queue(queue_families.compute, 0) };
+        let compute_queue = unsafe { logical.handle().get_device_queue(queue_families.compute, 0) };
 
         // SAFETY: Queue family index represents a valid queue family, as `instance.create_device`
         // succeeded with the given queue create infos.
         let transfer_queue =
-            unsafe { logical.get_handle().get_device_queue(queue_families.transfer, 0) };
+            unsafe { logical.handle().get_device_queue(queue_families.transfer, 0) };
 
         let device = Self {
             logical,
@@ -142,7 +141,7 @@ impl VulkanDevice {
         #[cfg(debug_assertions)]
         vk_try!(
             "name logical device",
-            device.logical.set_name(c"Logical Device", device.logical.get_handle().handle()),
+            device.logical.set_name(c"Logical Device", device.logical.handle().handle()),
         );
 
         let queue_sharing_label = |q1: u32, q2: u32| {
@@ -176,6 +175,10 @@ impl VulkanDevice {
 
     pub(super) fn physical(&self) -> PhysicalDevice {
         self.physical
+    }
+
+    pub(super) fn properties(&self) -> &PhysicalDeviceProperties {
+        &self.properties
     }
 
     pub(super) fn queue_families(&self) -> &QueueFamilyIndices {

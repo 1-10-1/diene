@@ -1,6 +1,6 @@
-#[cfg(debug_assertions)]
-use std::borrow::Cow;
 use std::ffi::{CStr, c_char};
+#[cfg(debug_assertions)]
+use std::{borrow::Cow, fmt::Write as _};
 
 #[cfg(debug_assertions)]
 use ash::ext::debug_utils;
@@ -70,8 +70,13 @@ pub(super) struct VulkanInstance {
 }
 
 impl VulkanInstance {
-    pub(super) fn get(&self) -> &ash::Instance {
+    pub(super) fn handle(&self) -> &ash::Instance {
         &self.handle
+    }
+
+    #[cfg(debug_assertions)]
+    pub(super) fn _debug_utils_loader(&self) -> Option<&debug_utils::Instance> {
+        self.debug_utils_loader.as_ref()
     }
 }
 
@@ -244,28 +249,49 @@ unsafe extern "system" fn vulkan_debug_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
+    if p_callback_data.is_null() {
+        error!("Vulkan debug callback was invoked without callback data");
+
+        return vk::FALSE;
+    }
+
     // SAFETY: Vulkan calls this callback with a valid callback data pointer for
     // the duration of the call.
-    let callback_data = unsafe { *p_callback_data };
+    let callback_data = unsafe { &*p_callback_data };
     let message_id_number = callback_data.message_id_number;
 
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        Cow::from("")
-    } else {
-        // SAFETY: Vulkan provides a null-terminated string pointer when this
-        // field is non-null, valid for the duration of the callback.
-        unsafe { CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy() }
+    let message_id_name = cstr_lossy(callback_data.p_message_id_name, "<unnamed>");
+    let message = cstr_lossy(callback_data.p_message, "");
+
+    // SAFETY: These debug-utils arrays are valid for the duration of this callback.
+    let queue_labels =
+        unsafe { callback_slice(callback_data.p_queue_labels, callback_data.queue_label_count) };
+
+    // SAFETY: These debug-utils arrays are valid for the duration of this callback.
+    let command_buffer_labels = unsafe {
+        callback_slice(callback_data.p_cmd_buf_labels, callback_data.cmd_buf_label_count)
     };
 
-    let message = if callback_data.p_message.is_null() {
-        Cow::from("")
-    } else {
-        // SAFETY: Vulkan provides a null-terminated message pointer when this
-        // field is non-null, valid for the duration of the callback.
-        unsafe { CStr::from_ptr(callback_data.p_message).to_string_lossy() }
-    };
+    // SAFETY: These debug-utils arrays are valid for the duration of this callback.
+    let objects = unsafe { callback_slice(callback_data.p_objects, callback_data.object_count) };
 
-    let msg = format!("[{message_type:?}] {message_id_name} ({message_id_number}):\n{message}");
+    let mut msg = String::new();
+    let _ = writeln!(msg, "[{message_type:?}]");
+    let _ = writeln!(msg, "  id: {message_id_name} ({message_id_number})");
+
+    if !callback_data.flags.is_empty() {
+        let flags = callback_data.flags;
+        let _ = writeln!(msg, "  flags: {flags:?}");
+    }
+
+    if !message.is_empty() {
+        let _ = writeln!(msg, "  message:");
+        write_indented_lines(&mut msg, &message, 4);
+    }
+
+    write_labels(&mut msg, "queue labels", queue_labels);
+    write_labels(&mut msg, "command buffer labels", command_buffer_labels);
+    write_objects(&mut msg, objects);
 
     match message_severity {
         vk::DebugUtilsMessageSeverityFlagsEXT::INFO => info!("{}", msg),
@@ -276,4 +302,75 @@ unsafe extern "system" fn vulkan_debug_callback(
     }
 
     vk::FALSE
+}
+
+#[cfg(debug_assertions)]
+fn cstr_lossy<'a>(ptr: *const c_char, fallback: &'static str) -> Cow<'a, str> {
+    if ptr.is_null() {
+        Cow::Borrowed(fallback)
+    } else {
+        // SAFETY: Vulkan debug-utils strings are null-terminated and valid for the callback's
+        // duration when their pointers are non-null.
+        unsafe { CStr::from_ptr(ptr).to_string_lossy() }
+    }
+}
+
+#[cfg(debug_assertions)]
+unsafe fn callback_slice<'a, T>(ptr: *const T, count: u32) -> &'a [T] {
+    if ptr.is_null() || count == 0 {
+        return &[];
+    }
+
+    match usize::try_from(count) {
+        Ok(count) => {
+            // SAFETY: The validation layer provides `count` elements at `ptr` for the duration of
+            // the callback when the pointer is non-null and count is non-zero.
+            unsafe { std::slice::from_raw_parts(ptr, count) }
+        }
+        Err(_) => &[],
+    }
+}
+
+#[cfg(debug_assertions)]
+fn write_indented_lines(buffer: &mut String, message: &str, spaces: usize) {
+    for line in message.lines() {
+        let _ = writeln!(buffer, "{:spaces$}{line}", "");
+    }
+}
+
+#[cfg(debug_assertions)]
+fn write_labels(buffer: &mut String, title: &str, labels: &[vk::DebugUtilsLabelEXT<'_>]) {
+    if labels.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(buffer, "  {title}:");
+
+    for (index, label) in labels.iter().enumerate() {
+        let name = cstr_lossy(label.p_label_name, "<unnamed>");
+        let [red, green, blue, alpha] = label.color;
+
+        let _ = writeln!(
+            buffer,
+            "    {index}: {name} color=rgba({red:.3}, {green:.3}, {blue:.3}, {alpha:.3})",
+        );
+    }
+}
+
+#[cfg(debug_assertions)]
+fn write_objects(buffer: &mut String, objects: &[vk::DebugUtilsObjectNameInfoEXT<'_>]) {
+    if objects.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(buffer, "  objects:");
+
+    for (index, object) in objects.iter().enumerate() {
+        let object_type = object.object_type;
+        let handle = object.object_handle;
+        let name = cstr_lossy(object.p_object_name, "<unnamed>");
+
+        let _ =
+            writeln!(buffer, "    {index}: {object_type:?} handle=0x{handle:016x} name=`{name}`");
+    }
 }

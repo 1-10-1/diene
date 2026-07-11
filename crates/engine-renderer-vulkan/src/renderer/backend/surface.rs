@@ -56,11 +56,11 @@ impl Drop for VulkanSurface {
 }
 
 impl VulkanSurface {
-    pub(super) fn get(&self) -> ash::vk::SurfaceKHR {
+    pub(super) fn handle(&self) -> ash::vk::SurfaceKHR {
         self.handle
     }
 
-    pub(super) fn get_loader(&self) -> &ash::khr::surface::Instance {
+    pub(super) fn loader(&self) -> &ash::khr::surface::Instance {
         &self.loader
     }
 
@@ -73,10 +73,16 @@ impl VulkanSurface {
         // SAFETY: The raw display/window handles come from the live winit window,
         // and `instance` was created with the required platform surface extensions.
         let handle = vk_try!("create Vulkan surface", unsafe {
-            ash_window::create_surface(entry, instance.get(), display_handle, window_handle, None)
+            ash_window::create_surface(
+                entry,
+                instance.handle(),
+                display_handle,
+                window_handle,
+                None,
+            )
         });
 
-        let loader = ash::khr::surface::Instance::new(entry, instance.get());
+        let loader = ash::khr::surface::Instance::new(entry, instance.handle());
 
         let surface = Self { handle, loader };
 

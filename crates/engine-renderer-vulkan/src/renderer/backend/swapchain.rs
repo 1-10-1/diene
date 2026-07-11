@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use std::ffi::CString;
 use std::sync::Arc;
 
 use ash::vk;
@@ -41,7 +43,7 @@ impl Drop for VulkanSwapchain {
         for image_view in self.present_image_views.drain(..) {
             // SAFETY: `image_view` was constructed through `self.device`.
             // This is called exactly once during drop.
-            unsafe { self.device.get_handle().destroy_image_view(image_view, None) };
+            unsafe { self.device.handle().destroy_image_view(image_view, None) };
         }
 
         // SAFETY: `self.loader` created `self.handle` during construction.
@@ -73,7 +75,7 @@ impl VulkanSwapchain {
             present_mode,
         }: &SurfaceConfig,
     ) -> core::result::Result<Self, VulkanSwapchainError> {
-        let loader = ash::khr::swapchain::Device::new(instance.get(), device.get_handle());
+        let loader = ash::khr::swapchain::Device::new(instance.handle(), device.handle());
 
         let desired_image_count = choose_image_count(capabilities);
 
@@ -85,7 +87,7 @@ impl VulkanSwapchain {
         let composite_alpha = choose_composite_alpha(capabilities)?;
 
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
-            .surface(surface.get())
+            .surface(surface.handle())
             .min_image_count(desired_image_count)
             .image_color_space(surface_format.color_space)
             .image_format(surface_format.format)
@@ -112,13 +114,23 @@ impl VulkanSwapchain {
             present_image_views: Vec::default(),
         };
 
+        #[cfg(debug_assertions)]
+        vk_try!("name swapchain", sc.device.set_name(c"Swapchain", sc.handle));
+
         // SAFETY: `handle` was constructed through `swapchain_loader`.
         sc.present_images =
             vk_try!("get swapchain images", unsafe { sc.loader.get_swapchain_images(handle) });
 
+        #[cfg(debug_assertions)]
+        for (index, image) in sc.present_images.iter().copied().enumerate() {
+            if let Ok(name) = CString::new(format!("Swapchain Image {index}")) {
+                vk_try!("name swapchain image", sc.device.set_name(name.as_c_str(), image));
+            }
+        }
+
         sc.present_image_views = Vec::with_capacity(sc.present_images.len());
 
-        for image in sc.present_images.iter().copied() {
+        for (index, image) in sc.present_images.iter().copied().enumerate() {
             let create_view_info = vk::ImageViewCreateInfo::default()
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(surface_format.format)
@@ -139,10 +151,18 @@ impl VulkanSwapchain {
 
             // SAFETY: The underlying image was constructed through the same device.
             let image_view = vk_try!("create swapchain image view", unsafe {
-                sc.device.get_handle().create_image_view(&create_view_info, None)
+                sc.device.handle().create_image_view(&create_view_info, None)
             });
 
             sc.present_image_views.push(image_view);
+
+            #[cfg(debug_assertions)]
+            if let Ok(name) = CString::new(format!("Swapchain Image View {index}")) {
+                vk_try!(
+                    "name swapchain image view",
+                    sc.device.set_name(name.as_c_str(), image_view),
+                );
+            }
         }
 
         trace!("swapchain initialized");

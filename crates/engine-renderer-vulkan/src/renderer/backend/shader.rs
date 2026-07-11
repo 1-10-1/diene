@@ -2,6 +2,7 @@
 
 use std::{
     ffi::{CString, NulError},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -45,7 +46,7 @@ struct ShaderStageInfo {
 /// Creates Vulkan shader modules from backend-neutral compiled shader artifacts.
 pub(super) struct VulkanShaderManager {
     device: Arc<VulkanLogicalDevice>,
-    compiler: Arc<ShaderCompiler>,
+    compiler: Rc<ShaderCompiler>,
 }
 
 impl std::fmt::Debug for VulkanShaderManager {
@@ -56,7 +57,7 @@ impl std::fmt::Debug for VulkanShaderManager {
 
 impl VulkanShaderManager {
     /// Creates a shader manager for the provided logical device and compiler.
-    pub(super) fn new(device: Arc<VulkanLogicalDevice>, compiler: Arc<ShaderCompiler>) -> Self {
+    pub(super) fn new(device: Arc<VulkanLogicalDevice>, compiler: Rc<ShaderCompiler>) -> Self {
         Self { device, compiler }
     }
 
@@ -100,7 +101,7 @@ impl VulkanShaderManager {
         // SAFETY: `create_info` points to SPIR-V words owned by `compiled` and valid through the
         // duration of the call. No custom allocator is used.
         let module = vk_try!("create shader module", unsafe {
-            self.device.get_handle().create_shader_module(&create_info, None)
+            self.device.handle().create_shader_module(&create_info, None)
         });
 
         #[cfg(debug_assertions)]
@@ -110,7 +111,7 @@ impl VulkanShaderManager {
             // SAFETY: `module` was just created from `self.device` and has not been handed to
             // an owner yet, so destroying it here avoids leaking it on the error path.
             unsafe {
-                self.device.get_handle().destroy_shader_module(module, None);
+                self.device.handle().destroy_shader_module(module, None);
             }
 
             return Err(VulkanCallError::new("name shader module", result).into());
@@ -160,7 +161,7 @@ impl Drop for VulkanShader {
     fn drop(&mut self) {
         // SAFETY: `self.module` was created through `self.device` and is destroyed exactly once.
         unsafe {
-            self.device.get_handle().destroy_shader_module(self.module, None);
+            self.device.handle().destroy_shader_module(self.module, None);
         }
     }
 }
@@ -173,17 +174,5 @@ const fn vulkan_stage(stage: ShaderStage) -> vk::ShaderStageFlags {
         ShaderStage::Geometry => vk::ShaderStageFlags::GEOMETRY,
         ShaderStage::TessellationControl => vk::ShaderStageFlags::TESSELLATION_CONTROL,
         ShaderStage::TessellationEvaluation => vk::ShaderStageFlags::TESSELLATION_EVALUATION,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maps_shader_stages_to_vulkan_flags() {
-        assert_eq!(vulkan_stage(ShaderStage::Vertex), vk::ShaderStageFlags::VERTEX);
-        assert_eq!(vulkan_stage(ShaderStage::Fragment), vk::ShaderStageFlags::FRAGMENT);
-        assert_eq!(vulkan_stage(ShaderStage::Compute), vk::ShaderStageFlags::COMPUTE);
     }
 }

@@ -126,7 +126,7 @@ pub enum ShaderCompileError {
     },
 
     /// Slang module compilation failed.
-    #[error("failed to compile Slang module `{module}`: {source}")]
+    #[error("failed to compile Slang module `{module}`")]
     ModuleCompilationFailed {
         /// Slang module name.
         module: String,
@@ -311,8 +311,8 @@ impl CompiledShader {
 
 /// Compiles Slang shader modules into backend-neutral SPIR-V artifacts.
 pub struct ShaderCompiler {
-    _global_session: slang::GlobalSession,
     session: slang::Session,
+    _global_session: slang::GlobalSession,
     options: ShaderCompilerOptions,
 }
 

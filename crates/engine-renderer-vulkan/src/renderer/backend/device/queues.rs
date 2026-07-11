@@ -28,7 +28,8 @@ pub(super) fn find_queue_family_indices(
 
     // SAFETY: `device` came from `inst`, so querying its queue families against
     // the same instance is valid.
-    let queue_families = unsafe { inst.get().get_physical_device_queue_family_properties(device) };
+    let queue_families =
+        unsafe { inst.handle().get_physical_device_queue_family_properties(device) };
 
     for (index, queue_family) in queue_families.iter().enumerate() {
         #[allow(clippy::cast_possible_truncation, clippy::as_conversions)]
@@ -67,7 +68,7 @@ pub(super) fn find_queue_family_indices(
         // SAFETY: `device` came from `inst`, `surf` was created for the same
         // instance, and `index` comes from this physical device's queue families.
         let supports_present = vk_try!("query queue-family present support", unsafe {
-            surf.get_loader().get_physical_device_surface_support(device, index, surf.get())
+            surf.loader().get_physical_device_surface_support(device, index, surf.handle())
         });
 
         if supports_present {

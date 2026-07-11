@@ -23,7 +23,7 @@ impl VulkanAllocator {
         physical_device: ash::vk::PhysicalDevice,
     ) -> core::result::Result<Self, VulkanAllocatorError> {
         let mut create_info =
-            AllocatorCreateInfo::new(instance.get(), device.get_handle(), physical_device);
+            AllocatorCreateInfo::new(instance.handle(), device.handle(), physical_device);
 
         create_info.vulkan_api_version = instance::MIN_API_VERSION.into();
 

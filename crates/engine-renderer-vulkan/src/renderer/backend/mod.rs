@@ -10,8 +10,11 @@ mod shader;
 mod surface;
 mod swapchain;
 
+use std::rc::Rc;
+
 use ash::vk::Extent2D;
 use engine_renderer_api::{RenderExtent, RenderWindow};
+use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
 
@@ -57,6 +60,10 @@ pub(super) enum VulkanBackendError {
     /// Vulkan surface refresh failed.
     #[error("failed to refresh vulkan surface details")]
     RefreshSurface,
+
+    /// Vulkan shader compiler operation failed.
+    #[error("shader compiler operation failed")]
+    ShaderCompilation,
 }
 
 #[allow(dead_code)]
@@ -130,6 +137,40 @@ impl VulkanBackend {
         let command =
             command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
+
+        let compiler = Rc::new(
+            ShaderCompiler::with_options(
+                ShaderCompilerOptions::default()
+                    .with_search_path("shaders")
+                    .with_spirv_profile("spirv_1_5")
+                    .with_assembly_output_dir("shaders"),
+            )
+            .change_context(VulkanBackendError::ShaderCompilation)?,
+        );
+
+        let shaders = shader::VulkanShaderManager::new(device.logical().clone(), compiler.clone());
+
+        let compiled_main_shader = compiler
+            .compile(
+                "main",
+                [
+                    engine_shader::ShaderEntrypoint::new(
+                        "fragMain",
+                        engine_shader::ShaderStage::Fragment,
+                    ),
+                    engine_shader::ShaderEntrypoint::new(
+                        "vertMain",
+                        engine_shader::ShaderStage::Vertex,
+                    ),
+                ],
+            )
+            .change_context(VulkanBackendError::ShaderCompilation)?;
+
+        let vk_main_shader = shaders
+            .create_shader(&compiled_main_shader)
+            .change_context(VulkanBackendError::ShaderCompilation)?;
+
+        let pipe = pipeline::VulkanGraphicsPipeline::builder().with_shaders([&vk_main_shader]);
 
         Ok(Self { command, allocator, swapchain, surface_config, device, surface, instance, entry })
     }

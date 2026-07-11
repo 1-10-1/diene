@@ -24,7 +24,7 @@ impl VulkanLogicalDevice {
         }
     }
 
-    pub(in crate::renderer::backend) fn get_handle(&self) -> &ash::Device {
+    pub(in crate::renderer::backend) fn handle(&self) -> &ash::Device {
         &self.handle
     }
 
