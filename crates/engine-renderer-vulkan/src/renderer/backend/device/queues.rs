@@ -26,8 +26,8 @@ pub(super) fn find_queue_family_indices(
     let mut transfer_non_graphics: Option<u32> = None;
     let mut transfer_any: Option<u32> = None;
 
-    // SAFETY: `device` came from `inst`, so querying its queue families against
-    // the same instance is valid.
+    // SAFETY: `device` came from `inst`, so querying its queue families
+    // against the same instance is valid.
     let queue_families =
         unsafe { inst.handle().get_physical_device_queue_family_properties(device) };
 
@@ -66,7 +66,8 @@ pub(super) fn find_queue_family_indices(
         }
 
         // SAFETY: `device` came from `inst`, `surf` was created for the same
-        // instance, and `index` comes from this physical device's queue families.
+        // instance, and `index` comes from this physical device's queue
+        // families.
         let supports_present = vk_try!("query queue-family present support", unsafe {
             surf.loader().get_physical_device_surface_support(device, index, surf.handle())
         });
@@ -83,8 +84,11 @@ pub(super) fn find_queue_family_indices(
     let graphics = graphics_present.or(graphics);
     let present = graphics_present.or(present);
 
-    let transfer =
-        transfer_only.or(transfer_non_graphics).or(transfer_any).or(compute).or(graphics);
+    let transfer = transfer_only
+        .or(transfer_non_graphics)
+        .or(transfer_any)
+        .or(compute)
+        .or(graphics);
 
     // NOTE: We're currently forcing graphics == present here.
     Ok(match (graphics, present, compute, transfer) {

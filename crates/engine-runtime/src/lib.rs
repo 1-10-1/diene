@@ -63,7 +63,8 @@ pub enum RendererBackend {
 
 const DEFAULT_RENDERER_BACKEND: RendererBackend = RendererBackend::Vulkan;
 
-/// Public engine application that owns renderer backend selection policy.
+/// Public engine application that owns renderer backend selection
+/// policy.
 #[derive(Debug)]
 pub struct Application {
     host: ApplicationHost,

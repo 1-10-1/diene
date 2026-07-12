@@ -43,7 +43,8 @@ pub enum ApplicationHostBuildError {
     EmptyName,
 }
 
-/// Drives the native window, event loop, and renderer for an application.
+/// Drives the native window, event loop, and renderer for an
+/// application.
 #[derive(Debug)]
 pub struct ApplicationHost {
     name: String,

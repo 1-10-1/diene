@@ -41,8 +41,8 @@ impl std::fmt::Debug for VulkanBuffer {
 
 impl Drop for VulkanBuffer {
     fn drop(&mut self) {
-        // SAFETY: `self.handle` and `self.allocation` were created together by this allocator and
-        // are destroyed exactly once here.
+        // SAFETY: `self.handle` and `self.allocation` were created together
+        // by this allocator and are destroyed exactly once here.
         unsafe {
             self.allocator.destroy_buffer(self.handle, &mut self.allocation);
         }
@@ -66,8 +66,9 @@ impl VulkanBuffer {
         let allocation_info =
             AllocationCreateInfo { flags, usage: memory_usage, ..Default::default() };
 
-        // SAFETY: `allocator` and `buffer_info` are valid for the duration of the call. VMA creates
-        // and binds the allocation before returning.
+        // SAFETY: `allocator` and `buffer_info` are valid for the duration of
+        // the call. VMA creates and binds the allocation before
+        // returning.
         let (handle, allocation) = vk_try!("create buffer", unsafe {
             allocator.create_buffer(&buffer_info, &allocation_info)
         });
@@ -122,8 +123,9 @@ impl VulkanBuffer {
     pub(super) fn device_address(&self, device: &VulkanLogicalDevice) -> vk::DeviceAddress {
         let info = vk::BufferDeviceAddressInfo::default().buffer(self.handle);
 
-        // SAFETY: `self.handle` is live and was created with SHADER_DEVICE_ADDRESS usage by callers
-        // that need an address.
+        // SAFETY: `self.handle` is live and was created with
+        // SHADER_DEVICE_ADDRESS usage by callers that need an
+        // address.
         unsafe { device.handle().get_buffer_device_address(&info) }
     }
 
@@ -135,13 +137,14 @@ impl VulkanBuffer {
             return Err(VulkanBufferError::WriteTooLarge { bytes: size, capacity: self.size });
         }
 
-        // SAFETY: The allocation was created with host sequential-write access.
+        // SAFETY: The allocation was created with host sequential-write
+        // access.
         let flush_result = unsafe {
             let mapped =
                 vk_try!("map buffer memory", self.allocator.map_memory(&mut self.allocation),);
 
-            // SAFETY: `bytes` and the mapped allocation do not overlap, and `size` has been checked
-            // against buffer capacity.
+            // SAFETY: `bytes` and the mapped allocation do not overlap, and
+            // `size` has been checked against buffer capacity.
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), mapped, bytes.len());
 
             let flush_result = self.allocator.flush_allocation(&self.allocation, 0, size);

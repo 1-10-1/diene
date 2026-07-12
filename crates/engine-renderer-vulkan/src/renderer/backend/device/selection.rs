@@ -28,8 +28,8 @@ pub(super) fn pick_physical(
     inst: &VulkanInstance,
     surf: &VulkanSurface,
 ) -> core::result::Result<DeviceCandidate, VulkanDeviceError> {
-    // SAFETY: `inst` owns a valid Vulkan instance for the duration of device
-    // selection.
+    // SAFETY: `inst` owns a valid Vulkan instance for the duration of
+    // device selection.
     let physical_devices = vk_try!("enumerate physical devices", unsafe {
         inst.handle().enumerate_physical_devices()
     });
@@ -189,17 +189,20 @@ fn check_swapchain_adequacy(
     surf: &VulkanSurface,
     device: vk::PhysicalDevice,
 ) -> core::result::Result<bool, VulkanDeviceError> {
-    // SAFETY: `surf` is a live surface created from the same instance as the physical device.
+    // SAFETY: `surf` is a live surface created from the same instance as
+    // the physical device.
     let capabilities = vk_try!("query surface capabilities for device selection", unsafe {
         surf.loader().get_physical_device_surface_capabilities(device, surf.handle())
     });
 
-    // SAFETY: `surf` is a live surface created from the same instance as the physical device.
+    // SAFETY: `surf` is a live surface created from the same instance as
+    // the physical device.
     let formats = vk_try!("query surface formats for device selection", unsafe {
         surf.loader().get_physical_device_surface_formats(device, surf.handle())
     });
 
-    // SAFETY: `surf` is a live surface created from the same instance as the physical device.
+    // SAFETY: `surf` is a live surface created from the same instance as
+    // the physical device.
     let present_modes = vk_try!("query present modes for device selection", unsafe {
         surf.loader().get_physical_device_surface_present_modes(device, surf.handle())
     });
@@ -215,6 +218,8 @@ fn check_swapchain_adequacy(
 
     Ok(!formats.is_empty()
         && !present_modes.is_empty()
-        && capabilities.supported_usage_flags.contains(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+        && capabilities
+            .supported_usage_flags
+            .contains(vk::ImageUsageFlags::COLOR_ATTACHMENT)
         && supports_known_composite_alpha)
 }

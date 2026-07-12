@@ -1,8 +1,9 @@
 //! Top-level facade for the Diene game engine.
 //!
-//! This crate is the project-level entry point for applications and documentation.
-//! It re-exports the default runtime API at the crate root and groups lower-level
-//! engine interfaces into focused modules.
+//! This crate is the project-level entry point for applications and
+//! documentation. It re-exports the default runtime API at the crate
+//! root and groups lower-level engine interfaces into focused
+//! modules.
 //!
 //! # Quick Start
 //!

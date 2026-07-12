@@ -45,8 +45,9 @@ pub(super) struct SurfaceConfig {
 
 impl Drop for VulkanSurface {
     fn drop(&mut self) {
-        // SAFETY: `self.handle` was created by this loader with no custom allocator,
-        // and the surface wrapper destroys it exactly once.
+        // SAFETY: `self.handle` was created by this loader with no custom
+        // allocator, and the surface wrapper destroys it exactly
+        // once.
         unsafe {
             self.loader.destroy_surface(self.handle, None);
         }
@@ -70,8 +71,9 @@ impl VulkanSurface {
         display_handle: RawDisplayHandle,
         window_handle: RawWindowHandle,
     ) -> core::result::Result<Self, VulkanSurfaceError> {
-        // SAFETY: The raw display/window handles come from the live winit window,
-        // and `instance` was created with the required platform surface extensions.
+        // SAFETY: The raw display/window handles come from the live winit
+        // window, and `instance` was created with the required
+        // platform surface extensions.
         let handle = vk_try!("create Vulkan surface", unsafe {
             ash_window::create_surface(
                 entry,
@@ -97,22 +99,27 @@ impl VulkanSurface {
         window_dimensions: Extent2D,
         vsync: bool,
     ) -> core::result::Result<SurfaceConfig, VulkanSurfaceError> {
-        // SAFETY: `self.handle` is a live surface created from the same instance as
-        // `self.loader`, and `physical_device` was selected from that instance.
+        // SAFETY: `self.handle` is a live surface created from the same
+        // instance as `self.loader`, and `physical_device` was
+        // selected from that instance.
         let capabilities = vk_try!("query surface capabilities", unsafe {
-            self.loader.get_physical_device_surface_capabilities(physical_device, self.handle)
+            self.loader
+                .get_physical_device_surface_capabilities(physical_device, self.handle)
         });
 
-        // SAFETY: `self.handle` is a live surface created from the same instance as
-        // `self.loader`, and `physical_device` was selected from that instance.
+        // SAFETY: `self.handle` is a live surface created from the same
+        // instance as `self.loader`, and `physical_device` was
+        // selected from that instance.
         let formats = vk_try!("query surface formats", unsafe {
             self.loader.get_physical_device_surface_formats(physical_device, self.handle)
         });
 
-        // SAFETY: `self.handle` is a live surface created from the same instance as
-        // `self.loader`, and `physical_device` was selected from that instance.
+        // SAFETY: `self.handle` is a live surface created from the same
+        // instance as `self.loader`, and `physical_device` was
+        // selected from that instance.
         let present_modes = vk_try!("query surface present modes", unsafe {
-            self.loader.get_physical_device_surface_present_modes(physical_device, self.handle)
+            self.loader
+                .get_physical_device_surface_present_modes(physical_device, self.handle)
         });
 
         let extent = choose_extent(&capabilities, window_dimensions);

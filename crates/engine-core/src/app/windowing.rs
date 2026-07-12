@@ -48,7 +48,8 @@ impl Window {
         self.inner.inner_size()
     }
 
-    /// Requests that the event loop schedule a redraw for this window.
+    /// Requests that the event loop schedule a redraw for this
+    /// window.
     pub(super) fn request_redraw(&self) {
         self.inner.request_redraw();
     }

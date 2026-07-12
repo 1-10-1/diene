@@ -109,8 +109,9 @@ impl TriangleVertexBuffer {
 }
 
 fn vertices_as_bytes(vertices: &[Vertex]) -> &[u8] {
-    // SAFETY: `Vertex` is `repr(C)` and contains only plain `f32` arrays, so viewing a contiguous
-    // vertex slice as bytes is valid for upload.
+    // SAFETY: `Vertex` is `repr(C)` and contains only plain `f32` arrays,
+    // so viewing a contiguous vertex slice as bytes is valid for
+    // upload.
     unsafe {
         core::slice::from_raw_parts(
             vertices.as_ptr().cast::<u8>(),

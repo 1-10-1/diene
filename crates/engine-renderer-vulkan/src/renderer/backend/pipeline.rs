@@ -31,7 +31,8 @@ pub(super) enum VulkanPipelineError {
     #[error("graphics pipeline builder is missing {0}")]
     IncompleteGraphicsPipeline(&'static str),
 
-    /// Pipeline creation succeeded without returning a valid pipeline handle.
+    /// Pipeline creation succeeded without returning a valid pipeline
+    /// handle.
     #[error("graphics pipeline creation did not return a pipeline handle")]
     NoPipelineReturned,
 
@@ -84,7 +85,8 @@ impl VulkanPipelineLayoutBuilder {
         self
     }
 
-    /// Sets descriptor-set layouts used by pipelines created from this layout.
+    /// Sets descriptor-set layouts used by pipelines created from
+    /// this layout.
     pub(super) fn with_descriptor_set_layouts<I>(mut self, layouts: I) -> Self
     where
         I: IntoIterator<Item = vk::DescriptorSetLayout>,
@@ -103,7 +105,8 @@ impl VulkanPipelineLayoutBuilder {
             .set_layouts(&self.descriptor_set_layouts)
             .push_constant_ranges(&push_constant_ranges);
 
-        // SAFETY: `create_info` only references local slices that live through the call.
+        // SAFETY: `create_info` only references local slices that live
+        // through the call.
         let handle = vk_try!("create pipeline layout", unsafe {
             device.handle().create_pipeline_layout(&create_info, None)
         });
@@ -111,7 +114,10 @@ impl VulkanPipelineLayoutBuilder {
         let layout = VulkanPipelineLayout { device, handle };
 
         #[cfg(debug_assertions)]
-        vk_try!("name pipeline layout", layout.device.set_name(c"pipeline layout", layout.handle),);
+        vk_try!(
+            "name pipeline layout",
+            layout.device.set_name(c"pipeline layout", layout.handle),
+        );
 
         Ok(layout)
     }
@@ -125,13 +131,16 @@ pub(super) struct VulkanPipelineLayout {
 
 impl std::fmt::Debug for VulkanPipelineLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VulkanPipelineLayout").field("handle", &self.handle).finish_non_exhaustive()
+        f.debug_struct("VulkanPipelineLayout")
+            .field("handle", &self.handle)
+            .finish_non_exhaustive()
     }
 }
 
 impl Drop for VulkanPipelineLayout {
     fn drop(&mut self) {
-        // SAFETY: `self.handle` was created through `self.device` and is destroyed exactly once.
+        // SAFETY: `self.handle` was created through `self.device` and is
+        // destroyed exactly once.
         unsafe {
             self.device.handle().destroy_pipeline_layout(self.handle, None);
         }
@@ -584,8 +593,9 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
 
         let new_cache = cache_data.is_none();
 
-        let cache_create_info =
-            cache_data.as_ref().map_or_else(vk::PipelineCacheCreateInfo::default, |cache_data| {
+        let cache_create_info = cache_data
+            .as_ref()
+            .map_or_else(vk::PipelineCacheCreateInfo::default, |cache_data| {
                 vk::PipelineCacheCreateInfo::default().initial_data(cache_data)
             });
 
@@ -598,8 +608,9 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
 
         let start = Instant::now();
 
-        // SAFETY: `create_info` references only local state that lives through the call. Shader
-        // modules and the pipeline layout are live for the duration of creation.
+        // SAFETY: `create_info` references only local state that lives
+        // through the call. Shader modules and the pipeline layout
+        // are live for the duration of creation.
         let handle = match unsafe {
             logical.handle().create_graphics_pipelines(cache_handle, &[create_info], None)
         } {
@@ -608,8 +619,9 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
             }
             Err((pipelines, result)) => {
                 for pipeline in pipelines.into_iter().filter(|pipeline| !pipeline.is_null()) {
-                    // SAFETY: Partial pipeline handles returned by this failed creation call belong
-                    // to `logical` and have no other owner.
+                    // SAFETY: Partial pipeline handles returned by this failed creation
+                    // call belong to `logical` and have no other
+                    // owner.
                     unsafe {
                         logical.handle().destroy_pipeline(pipeline, None);
                     }
@@ -642,7 +654,8 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
         );
 
         if new_cache && let Some(pipeline_cache) = &pipeline_cache {
-            // SAFETY: `pipeline_cache` is a live cache created through `pipeline.device`.
+            // SAFETY: `pipeline_cache` is a live cache created through
+            // `pipeline.device`.
             let cache_data = vk_try!("get pipeline cache data", unsafe {
                 pipeline.device.handle().get_pipeline_cache_data(pipeline_cache.handle())
             });
@@ -671,7 +684,8 @@ impl std::fmt::Debug for VulkanGraphicsPipeline {
 
 impl Drop for VulkanGraphicsPipeline {
     fn drop(&mut self) {
-        // SAFETY: `self.handle` was created through `self.device` and is destroyed exactly once.
+        // SAFETY: `self.handle` was created through `self.device` and is
+        // destroyed exactly once.
         unsafe {
             self.device.handle().destroy_pipeline(self.handle, None);
         }
@@ -703,7 +717,8 @@ impl PipelineCache {
 
 impl Drop for PipelineCache {
     fn drop(&mut self) {
-        // SAFETY: `self.handle` was created through `self.device` and is destroyed exactly once.
+        // SAFETY: `self.handle` was created through `self.device` and is
+        // destroyed exactly once.
         unsafe {
             self.device.handle().destroy_pipeline_cache(self.handle, None);
         }
@@ -715,7 +730,8 @@ fn create_pipeline_cache(
     name: &str,
     create_info: &vk::PipelineCacheCreateInfo<'_>,
 ) -> core::result::Result<Option<PipelineCache>, VulkanPipelineError> {
-    // SAFETY: `create_info` references compatible cache bytes that live through the call.
+    // SAFETY: `create_info` references compatible cache bytes that live
+    // through the call.
     match unsafe { device.handle().create_pipeline_cache(create_info, None) } {
         Ok(handle) => {
             let cache = PipelineCache { device, handle };
@@ -743,7 +759,9 @@ fn pipeline_cache_path(name: &str) -> PathBuf {
 
 fn is_valid_pipeline_name(name: &str) -> bool {
     !name.is_empty()
-        && !name.chars().any(|ch| ch.is_whitespace() || ch == '/' || ch == '\\' || ch == '\0')
+        && !name
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch == '/' || ch == '\\' || ch == '\0')
 }
 
 fn load_compatible_pipeline_cache(
@@ -772,8 +790,10 @@ fn compatible_pipeline_cache(
         return None;
     }
 
-    // SAFETY: `cache_data` has at least one full `PipelineCacheHeaderVersionOne` worth of bytes.
-    // `read_unaligned` avoids imposing alignment requirements on bytes read from disk.
+    // SAFETY: `cache_data` has at least one full
+    // `PipelineCacheHeaderVersionOne` worth of bytes.
+    // `read_unaligned` avoids imposing alignment requirements on bytes
+    // read from disk.
     let header =
         unsafe { cache_data.as_ptr().cast::<vk::PipelineCacheHeaderVersionOne>().read_unaligned() };
 
@@ -859,8 +879,9 @@ mod tests {
     }
 
     fn header_bytes(header: &vk::PipelineCacheHeaderVersionOne) -> Vec<u8> {
-        // SAFETY: `header` is a live plain-old-data Vulkan header. The resulting slice is used
-        // immediately to copy the bytes into an owned `Vec<u8>`.
+        // SAFETY: `header` is a live plain-old-data Vulkan header. The
+        // resulting slice is used immediately to copy the bytes into
+        // an owned `Vec<u8>`.
         unsafe {
             std::slice::from_raw_parts(
                 std::ptr::from_ref(header).cast::<u8>(),

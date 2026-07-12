@@ -62,11 +62,17 @@ impl VulkanSwapchain {
     }
 
     pub(super) fn image(&self, index: u32) -> Option<vk::Image> {
-        usize::try_from(index).ok().and_then(|index| self.present_images.get(index)).copied()
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.present_images.get(index))
+            .copied()
     }
 
     pub(super) fn image_view(&self, index: u32) -> Option<vk::ImageView> {
-        usize::try_from(index).ok().and_then(|index| self.present_image_views.get(index)).copied()
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.present_image_views.get(index))
+            .copied()
     }
 
     pub(super) fn image_count(&self) -> usize {
@@ -174,7 +180,8 @@ impl VulkanSwapchain {
                 })
                 .image(image);
 
-            // SAFETY: The underlying image was constructed through the same device.
+            // SAFETY: The underlying image was constructed through the same
+            // device.
             let image_view = vk_try!("create swapchain image view", unsafe {
                 sc.device.handle().create_image_view(&create_view_info, None)
             });

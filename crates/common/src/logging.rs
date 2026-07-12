@@ -25,7 +25,8 @@ pub mod macros {
 
 /// Keeps the non-blocking file logger alive.
 ///
-/// Hold this guard until shutdown so file logs continue to be flushed.
+/// Hold this guard until shutdown so file logs continue to be
+/// flushed.
 #[derive(Debug)]
 pub struct LoggerGuard {
     _file_guard: WorkerGuard,
@@ -108,8 +109,9 @@ fn write_level(writer: &mut Writer<'_>, level: Level) -> std_fmt::Result {
 pub fn init() -> Result<LoggerGuard> {
     error_stack::Report::set_color_mode(error_stack::fmt::ColorMode::None);
 
-    let log_dir =
-        std::env::current_dir().context("failed to get current working directory")?.join("logs");
+    let log_dir = std::env::current_dir()
+        .context("failed to get current working directory")?
+        .join("logs");
 
     fs::create_dir_all(&log_dir)
         .with_context(|| format!("failed to create log directory at {}", log_dir.display()))?;
@@ -121,8 +123,10 @@ pub fn init() -> Result<LoggerGuard> {
 
     let formatter = EngineFormatter::new();
 
-    let stdout_layer =
-        fmt::layer().with_writer(std::io::stdout).with_ansi(true).event_format(formatter.clone());
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_ansi(true)
+        .event_format(formatter.clone());
 
     let (file_writer, file_guard) = tracing_appender::non_blocking(log_file);
 

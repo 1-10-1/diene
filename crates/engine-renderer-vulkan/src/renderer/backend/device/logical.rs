@@ -34,11 +34,13 @@ impl VulkanLogicalDevice {
         name: &CStr,
         handle: T,
     ) -> core::result::Result<(), vk::Result> {
-        let name_info =
-            vk::DebugUtilsObjectNameInfoEXT::default().object_name(name).object_handle(handle);
+        let name_info = vk::DebugUtilsObjectNameInfoEXT::default()
+            .object_name(name)
+            .object_handle(handle);
 
-        // SAFETY: `self.handle` is a live device, `debug_utils_loader` was created for it, and
-        // `name_info` points to `name`, which lives through this call.
+        // SAFETY: `self.handle` is a live device, `debug_utils_loader` was
+        // created for it, and `name_info` points to `name`, which
+        // lives through this call.
         unsafe { self.debug_utils_loader.set_debug_utils_object_name(&name_info)? };
 
         Ok(())
@@ -47,9 +49,10 @@ impl VulkanLogicalDevice {
 
 impl Drop for VulkanLogicalDevice {
     fn drop(&mut self) {
-        // SAFETY: `self.handle` is a valid logical device created by `create_device`,
-        // owned exclusively by this RAII wrapper, and destroyed exactly once here.
-        // Future device-owned resources must be destroyed before this wrapper drops.
+        // SAFETY: `self.handle` is a valid logical device created by
+        // `create_device`, owned exclusively by this RAII wrapper,
+        // and destroyed exactly once here. Future device-owned
+        // resources must be destroyed before this wrapper drops.
         unsafe {
             let _ = self.handle.device_wait_idle();
             self.handle.destroy_device(None);

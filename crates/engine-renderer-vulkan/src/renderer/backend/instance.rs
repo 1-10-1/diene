@@ -97,9 +97,9 @@ impl Drop for VulkanInstance {
             }
         }
 
-        // SAFETY: `self.handle` is a valid instance owned by this wrapper, all
-        // instance children held by this wrapper have been destroyed, and no
-        // custom allocator was used.
+        // SAFETY: `self.handle` is a valid instance owned by this wrapper,
+        // all instance children held by this wrapper have been
+        // destroyed, and no custom allocator was used.
         unsafe {
             self.handle.destroy_instance(None);
         }
@@ -120,8 +120,8 @@ impl VulkanInstance {
         entry: &ash::Entry,
         display_handle: RawDisplayHandle,
     ) -> core::result::Result<Self, VulkanInstanceError> {
-        // SAFETY: `entry` was loaded successfully and this call only queries loader-supported
-        // instance API version information.
+        // SAFETY: `entry` was loaded successfully and this call only queries
+        // loader-supported instance API version information.
         let supported_version = vk_try!("enumerate Vulkan instance version", unsafe {
             entry.try_enumerate_instance_version()
         });
@@ -255,24 +255,27 @@ unsafe extern "system" fn vulkan_debug_callback(
         return vk::FALSE;
     }
 
-    // SAFETY: Vulkan calls this callback with a valid callback data pointer for
-    // the duration of the call.
+    // SAFETY: Vulkan calls this callback with a valid callback data
+    // pointer for the duration of the call.
     let callback_data = unsafe { &*p_callback_data };
     let message_id_number = callback_data.message_id_number;
 
     let message_id_name = cstr_lossy(callback_data.p_message_id_name, "<unnamed>");
     let message = cstr_lossy(callback_data.p_message, "");
 
-    // SAFETY: These debug-utils arrays are valid for the duration of this callback.
+    // SAFETY: These debug-utils arrays are valid for the duration of this
+    // callback.
     let queue_labels =
         unsafe { callback_slice(callback_data.p_queue_labels, callback_data.queue_label_count) };
 
-    // SAFETY: These debug-utils arrays are valid for the duration of this callback.
+    // SAFETY: These debug-utils arrays are valid for the duration of this
+    // callback.
     let command_buffer_labels = unsafe {
         callback_slice(callback_data.p_cmd_buf_labels, callback_data.cmd_buf_label_count)
     };
 
-    // SAFETY: These debug-utils arrays are valid for the duration of this callback.
+    // SAFETY: These debug-utils arrays are valid for the duration of this
+    // callback.
     let objects = unsafe { callback_slice(callback_data.p_objects, callback_data.object_count) };
 
     let mut msg = String::new();
@@ -310,8 +313,9 @@ fn cstr_lossy<'a>(ptr: *const c_char, fallback: &'static str) -> Cow<'a, str> {
     if ptr.is_null() {
         Cow::Borrowed(fallback)
     } else {
-        // SAFETY: Vulkan debug-utils strings are null-terminated and valid for the callback's
-        // duration when their pointers are non-null.
+        // SAFETY: Vulkan debug-utils strings are null-terminated and valid
+        // for the callback's duration when their pointers are
+        // non-null.
         unsafe { CStr::from_ptr(ptr).to_string_lossy() }
     }
 }
@@ -324,8 +328,9 @@ unsafe fn callback_slice<'a, T>(ptr: *const T, count: u32) -> &'a [T] {
 
     match usize::try_from(count) {
         Ok(count) => {
-            // SAFETY: The validation layer provides `count` elements at `ptr` for the duration of
-            // the callback when the pointer is non-null and count is non-zero.
+            // SAFETY: The validation layer provides `count` elements at `ptr` for
+            // the duration of the callback when the pointer is
+            // non-null and count is non-zero.
             unsafe { std::slice::from_raw_parts(ptr, count) }
         }
         Err(_) => &[],

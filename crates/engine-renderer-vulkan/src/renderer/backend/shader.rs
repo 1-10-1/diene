@@ -28,7 +28,8 @@ pub(super) enum VulkanShaderError {
     /// Shader entrypoint name contained an interior NUL byte.
     #[error("shader entrypoint `{entrypoint}` contained an interior NUL byte")]
     InvalidEntrypointName {
-        /// Entrypoint name that could not be represented as a C string.
+        /// Entrypoint name that could not be represented as a C
+        /// string.
         entrypoint: String,
 
         /// Underlying string conversion error.
@@ -43,7 +44,8 @@ struct ShaderStageInfo {
     stage: vk::ShaderStageFlags,
 }
 
-/// Creates Vulkan shader modules from backend-neutral compiled shader artifacts.
+/// Creates Vulkan shader modules from backend-neutral compiled shader
+/// artifacts.
 pub(super) struct VulkanShaderManager {
     device: Arc<VulkanLogicalDevice>,
     compiler: Rc<ShaderCompiler>,
@@ -56,12 +58,14 @@ impl std::fmt::Debug for VulkanShaderManager {
 }
 
 impl VulkanShaderManager {
-    /// Creates a shader manager for the provided logical device and compiler.
+    /// Creates a shader manager for the provided logical device and
+    /// compiler.
     pub(super) fn new(device: Arc<VulkanLogicalDevice>, compiler: Rc<ShaderCompiler>) -> Self {
         Self { device, compiler }
     }
 
-    /// Compiles a shader module and creates a Vulkan shader module from it.
+    /// Compiles a shader module and creates a Vulkan shader module
+    /// from it.
     pub(super) fn build<I, E>(
         &self,
         module_name: &str,
@@ -75,7 +79,8 @@ impl VulkanShaderManager {
         self.create_shader(&compiled)
     }
 
-    /// Creates a Vulkan shader module from a precompiled shader artifact.
+    /// Creates a Vulkan shader module from a precompiled shader
+    /// artifact.
     pub(super) fn create_shader(
         &self,
         compiled: &CompiledShader,
@@ -98,8 +103,9 @@ impl VulkanShaderManager {
 
         let create_info = vk::ShaderModuleCreateInfo::default().code(compiled.spirv_words());
 
-        // SAFETY: `create_info` points to SPIR-V words owned by `compiled` and valid through the
-        // duration of the call. No custom allocator is used.
+        // SAFETY: `create_info` points to SPIR-V words owned by `compiled`
+        // and valid through the duration of the call. No custom
+        // allocator is used.
         let module = vk_try!("create shader module", unsafe {
             self.device.handle().create_shader_module(&create_info, None)
         });
@@ -108,8 +114,9 @@ impl VulkanShaderManager {
         if let Ok(name) = CString::new(format!("shader module: {}", compiled.module()))
             && let Err(result) = self.device.set_name(name.as_c_str(), module)
         {
-            // SAFETY: `module` was just created from `self.device` and has not been handed to
-            // an owner yet, so destroying it here avoids leaking it on the error path.
+            // SAFETY: `module` was just created from `self.device` and has not
+            // been handed to an owner yet, so destroying it here
+            // avoids leaking it on the error path.
             unsafe {
                 self.device.handle().destroy_shader_module(module, None);
             }
@@ -143,7 +150,8 @@ impl VulkanShader {
         self.module
     }
 
-    /// Builds pipeline shader stage infos that borrow this shader's entrypoint names.
+    /// Builds pipeline shader stage infos that borrow this shader's
+    /// entrypoint names.
     pub(super) fn stage_infos(&self) -> Vec<vk::PipelineShaderStageCreateInfo<'_>> {
         self.stages
             .iter()
@@ -159,7 +167,8 @@ impl VulkanShader {
 
 impl Drop for VulkanShader {
     fn drop(&mut self) {
-        // SAFETY: `self.module` was created through `self.device` and is destroyed exactly once.
+        // SAFETY: `self.module` was created through `self.device` and is
+        // destroyed exactly once.
         unsafe {
             self.device.handle().destroy_shader_module(self.module, None);
         }

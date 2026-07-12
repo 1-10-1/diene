@@ -15,7 +15,8 @@ pub(super) enum VulkanCommandError {
     #[error(transparent)]
     UnexpectedResult(#[from] VulkanCallError),
 
-    /// Command buffer allocation succeeded without returning a command buffer.
+    /// Command buffer allocation succeeded without returning a
+    /// command buffer.
     #[error("graphics command buffer allocation returned no buffers")]
     NoCommandBufferReturned,
 }
@@ -122,13 +123,16 @@ impl VulkanCommand {
             )
         });
 
-        command.graphics_command_buffer =
-            graphics_command_buffers.pop().ok_or(VulkanCommandError::NoCommandBufferReturned)?;
+        command.graphics_command_buffer = graphics_command_buffers
+            .pop()
+            .ok_or(VulkanCommandError::NoCommandBufferReturned)?;
 
         #[cfg(debug_assertions)]
         vk_try!(
             "name graphics command buffer",
-            command.device.set_name(c"graphics command buffer", command.graphics_command_buffer),
+            command
+                .device
+                .set_name(c"graphics command buffer", command.graphics_command_buffer),
         );
 
         Ok(command)
@@ -147,7 +151,8 @@ impl VulkanCommand {
     ) -> core::result::Result<(), VulkanCommandError> {
         let command_buffer = self.graphics_command_buffer;
 
-        // SAFETY: The command buffer was allocated from a pool created with RESET_COMMAND_BUFFER.
+        // SAFETY: The command buffer was allocated from a pool created with
+        // RESET_COMMAND_BUFFER.
         vk_try!("reset graphics command buffer for copy", unsafe {
             self.device
                 .handle()
@@ -164,13 +169,14 @@ impl VulkanCommand {
 
         let regions = [vk::BufferCopy::default().size(size)];
 
-        // SAFETY: Both buffers are live, and the copy region stays within the caller-provided
-        // buffer sizes by construction.
+        // SAFETY: Both buffers are live, and the copy region stays within the
+        // caller-provided buffer sizes by construction.
         unsafe {
             self.device.handle().cmd_copy_buffer(command_buffer, src, dst, &regions);
         }
 
-        // SAFETY: Recording was begun above and contains only the copy command.
+        // SAFETY: Recording was begun above and contains only the copy
+        // command.
         vk_try!("end graphics command buffer for copy", unsafe {
             self.device.handle().end_command_buffer(command_buffer)
         });
@@ -178,8 +184,9 @@ impl VulkanCommand {
         let command_buffers = [command_buffer];
         let submit_infos = [vk::SubmitInfo::default().command_buffers(&command_buffers)];
 
-        // SAFETY: `queue` belongs to the same device as the command buffer. Waiting for queue idle
-        // makes this one-shot upload complete before staging resources are dropped.
+        // SAFETY: `queue` belongs to the same device as the command buffer.
+        // Waiting for queue idle makes this one-shot upload complete
+        // before staging resources are dropped.
         unsafe {
             vk_try!(
                 "submit buffer copy",

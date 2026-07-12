@@ -15,8 +15,9 @@ pub(super) struct VulkanFrameSync {
 
 impl Drop for VulkanFrameSync {
     fn drop(&mut self) {
-        // SAFETY: All synchronization objects were created from `self.device` and are destroyed
-        // once after the backend has waited for the device to become idle.
+        // SAFETY: All synchronization objects were created from `self.device`
+        // and are destroyed once after the backend has waited for the
+        // device to become idle.
         unsafe {
             if !self.image_available.is_null() {
                 self.device.handle().destroy_semaphore(self.image_available, None);
@@ -48,7 +49,8 @@ impl VulkanFrameSync {
         let semaphore_info = vk::SemaphoreCreateInfo::default();
         let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
 
-        // SAFETY: `sync.device` is a live logical device and no custom allocator is used.
+        // SAFETY: `sync.device` is a live logical device and no custom
+        // allocator is used.
         sync.image_available = vk_try!("create image-available semaphore", unsafe {
             sync.device.handle().create_semaphore(&semaphore_info, None)
         });
@@ -60,7 +62,8 @@ impl VulkanFrameSync {
         );
 
         for index in 0..swapchain_image_count {
-            // SAFETY: `sync.device` is a live logical device and no custom allocator is used.
+            // SAFETY: `sync.device` is a live logical device and no custom
+            // allocator is used.
             let semaphore = vk_try!("create render-finished semaphore", unsafe {
                 sync.device.handle().create_semaphore(&semaphore_info, None)
             });
@@ -76,7 +79,8 @@ impl VulkanFrameSync {
             sync.render_finished.push(semaphore);
         }
 
-        // SAFETY: `sync.device` is a live logical device and no custom allocator is used.
+        // SAFETY: `sync.device` is a live logical device and no custom
+        // allocator is used.
         sync.in_flight = vk_try!("create in-flight frame fence", unsafe {
             sync.device.handle().create_fence(&fence_info, None)
         });
@@ -95,7 +99,10 @@ impl VulkanFrameSync {
     }
 
     pub(super) fn render_finished(&self, image_index: u32) -> Option<vk::Semaphore> {
-        usize::try_from(image_index).ok().and_then(|index| self.render_finished.get(index)).copied()
+        usize::try_from(image_index)
+            .ok()
+            .and_then(|index| self.render_finished.get(index))
+            .copied()
     }
 
     pub(super) fn in_flight(&self) -> vk::Fence {

@@ -1,4 +1,5 @@
-//! Shared renderer abstraction used by engine orchestration and backends.
+//! Shared renderer abstraction used by engine orchestration and
+//! backends.
 
 #![forbid(unsafe_code)]
 

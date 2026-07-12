@@ -36,14 +36,16 @@ impl Default for ShaderCompilerOptions {
 }
 
 impl ShaderCompilerOptions {
-    /// Adds a search path used to resolve shader modules and includes.
+    /// Adds a search path used to resolve shader modules and
+    /// includes.
     #[must_use]
     pub fn with_search_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.search_paths.push(path.into());
         self
     }
 
-    /// Replaces the search paths used to resolve shader modules and includes.
+    /// Replaces the search paths used to resolve shader modules and
+    /// includes.
     #[must_use]
     pub fn with_search_paths<I, P>(mut self, paths: I) -> Self
     where
@@ -110,7 +112,8 @@ pub enum ShaderCompileError {
     /// Shader entrypoint name contained an interior NUL byte.
     #[error("shader entrypoint `{entrypoint}` contained an interior NUL byte")]
     InvalidEntrypointName {
-        /// Entrypoint name that could not be represented as a C string.
+        /// Entrypoint name that could not be represented as a C
+        /// string.
         entrypoint: String,
 
         /// Underlying string conversion error.
@@ -309,7 +312,8 @@ impl CompiledShader {
     }
 }
 
-/// Compiles Slang shader modules into backend-neutral SPIR-V artifacts.
+/// Compiles Slang shader modules into backend-neutral SPIR-V
+/// artifacts.
 pub struct ShaderCompiler {
     session: slang::Session,
     options: ShaderCompilerOptions,
@@ -318,7 +322,9 @@ pub struct ShaderCompiler {
 
 impl std::fmt::Debug for ShaderCompiler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ShaderCompiler").field("options", &self.options).finish_non_exhaustive()
+        f.debug_struct("ShaderCompiler")
+            .field("options", &self.options)
+            .finish_non_exhaustive()
     }
 }
 
@@ -338,7 +344,9 @@ impl ShaderCompiler {
         let spirv_profile = global_session.find_profile(&options.spirv_profile);
 
         let mut targets = vec![
-            slang::TargetDesc::default().format(slang::CompileTarget::Spirv).profile(spirv_profile),
+            slang::TargetDesc::default()
+                .format(slang::CompileTarget::Spirv)
+                .profile(spirv_profile),
         ];
 
         if options.assembly_output_dir.is_some() {
@@ -427,9 +435,12 @@ impl ShaderCompiler {
             .collect::<Vec<slang::ComponentType>>();
 
         let program =
-            self.session.create_composite_component_type(&component_types).map_err(|source| {
-                ShaderCompileError::CompositionFailure { module: module_name.clone(), source }
-            })?;
+            self.session
+                .create_composite_component_type(&component_types)
+                .map_err(|source| ShaderCompileError::CompositionFailure {
+                    module: module_name.clone(),
+                    source,
+                })?;
 
         let linked_program = program.link().map_err(|source| ShaderCompileError::LinkFailure {
             module: module_name.clone(),

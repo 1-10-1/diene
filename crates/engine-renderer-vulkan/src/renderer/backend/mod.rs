@@ -16,7 +16,7 @@ mod vertex;
 use std::{rc::Rc, time::Instant};
 
 use ash::vk::{self, Extent2D};
-use common::logging::macros::{debug, info, warn};
+use common::logging::macros::*;
 use engine_renderer_api::{RenderExtent, RenderWindow};
 use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
@@ -85,14 +85,16 @@ pub(super) enum VulkanBackendError {
     #[error(transparent)]
     UnexpectedResult(#[from] call_error::VulkanCallError),
 
-    /// The swapchain returned an image index without a matching image and view.
+    /// The swapchain returned an image index without a matching image
+    /// and view.
     #[error("swapchain returned invalid image index {image_index}")]
     InvalidSwapchainImageIndex {
         /// Image index returned by Vulkan.
         image_index: u32,
     },
 
-    /// Surface format changed after the triangle pipeline was created.
+    /// Surface format changed after the triangle pipeline was
+    /// created.
     #[error("surface format changed from {old:?} to {new:?}")]
     SurfaceFormatChanged {
         /// Format used by the current graphics pipeline.
@@ -124,8 +126,9 @@ pub(super) struct VulkanBackend {
 
 impl Drop for VulkanBackend {
     fn drop(&mut self) {
-        // SAFETY: The logical device is live, and waiting here keeps backend-owned resources from
-        // being destroyed while their final submitted frame may still be executing.
+        // SAFETY: The logical device is live, and waiting here keeps
+        // backend-owned resources from being destroyed while their
+        // final submitted frame may still be executing.
         if let Err(result) = unsafe { self.device.logical().handle().device_wait_idle() } {
             warn!("failed to wait for Vulkan device idle during backend drop: {result:?}");
         }
@@ -150,9 +153,9 @@ impl VulkanBackend {
             })?
             .as_raw();
 
-        // SAFETY: Loading the Vulkan entry only performs dynamic symbol lookup;
-        // the owned entry is stored in the backend and outlives all objects
-        // created from it.
+        // SAFETY: Loading the Vulkan entry only performs dynamic symbol
+        // lookup; the owned entry is stored in the backend and
+        // outlives all objects created from it.
         let entry = unsafe { ash::Entry::load() }.map_err(|err| {
             Report::new(VulkanBackendError::EntryLoadFailure).attach_printable(err.to_string())
         })?;
@@ -221,7 +224,10 @@ impl VulkanBackend {
             )
             .change_context(VulkanBackendError::ShaderCompilation)?;
 
-        debug!("took {:.2}ms to compile the main shader", start.elapsed().as_secs_f64() * 1000.0);
+        debug!(
+            "took {:.2}ms to compile the main shader",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
 
         let vk_main_shader = shaders
             .create_shader(&compiled_main_shader)
@@ -313,17 +319,20 @@ impl VulkanBackend {
             .render_finished(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
 
-        // SAFETY: The fence is signaled because we waited above, and the command buffer was
-        // allocated from a pool created with RESET_COMMAND_BUFFER.
+        // SAFETY: The fence is signaled because we waited above, and the
+        // command buffer was allocated from a pool created with
+        // RESET_COMMAND_BUFFER.
         vk_try!("reset graphics command buffer", unsafe {
             logical.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
         });
 
         self.record_triangle_commands(command_buffer, image_index)?;
 
-        // SAFETY: Reset immediately before submission so failures before this point leave the fence
-        // signaled for the next frame.
-        vk_try!("reset in-flight frame fence", unsafe { logical.reset_fences(&in_flight_fences) });
+        // SAFETY: Reset immediately before submission so failures before this
+        // point leave the fence signaled for the next frame.
+        vk_try!("reset in-flight frame fence", unsafe {
+            logical.reset_fences(&in_flight_fences)
+        });
 
         let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
             .semaphore(self.frame_sync.image_available())
@@ -341,8 +350,9 @@ impl VulkanBackend {
             .command_buffer_infos(&command_buffer_infos)
             .signal_semaphore_infos(&signal_semaphore_infos)];
 
-        // SAFETY: Queue, command buffer, synchronization objects, and submit-info slices are live
-        // through the call. The in-flight fence tracks this submission.
+        // SAFETY: Queue, command buffer, synchronization objects, and
+        // submit-info slices are live through the call. The in-flight
+        // fence tracks this submission.
         vk_try!("submit graphics command buffer", unsafe {
             logical.queue_submit2(self.device.graphics_queue(), &submit_infos, in_flight)
         });
@@ -358,10 +368,13 @@ impl VulkanBackend {
             .swapchains(&swapchains)
             .image_indices(&image_indices);
 
-        // SAFETY: The swapchain belongs to the device queue family selected for graphics and
-        // presentation, and the render-finished semaphore is signaled by the submitted frame.
+        // SAFETY: The swapchain belongs to the device queue family selected
+        // for graphics and presentation, and the render-finished
+        // semaphore is signaled by the submitted frame.
         let present_suboptimal = match unsafe {
-            self.swapchain.loader().queue_present(self.device.graphics_queue(), &present_info)
+            self.swapchain
+                .loader()
+                .queue_present(self.device.graphics_queue(), &present_info)
         } {
             Ok(suboptimal) => suboptimal,
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
@@ -404,8 +417,9 @@ impl VulkanBackend {
         &mut self,
         extent: Extent2D,
     ) -> core::result::Result<(), VulkanBackendError> {
-        // SAFETY: The logical device is live; waiting before replacement keeps old swapchain images
-        // from being destroyed while commands or presentation still reference them.
+        // SAFETY: The logical device is live; waiting before replacement
+        // keeps old swapchain images from being destroyed while
+        // commands or presentation still reference them.
         vk_try!("wait for device idle before recreating swapchain", unsafe {
             self.device.logical().handle().device_wait_idle()
         });
@@ -460,7 +474,8 @@ impl VulkanBackend {
 
         let extent = self.surface_config.extent;
 
-        // SAFETY: `command_buffer` is a reset primary command buffer owned by this backend.
+        // SAFETY: `command_buffer` is a reset primary command buffer owned by
+        // this backend.
         vk_try!("begin graphics command buffer", unsafe {
             logical.begin_command_buffer(command_buffer, &vk::CommandBufferBeginInfo::default())
         });
@@ -505,8 +520,9 @@ impl VulkanBackend {
         let viewports = [viewport];
         let scissors = [render_area];
 
-        // SAFETY: The command buffer is recording, the dynamic-rendering attachment references a
-        // live swapchain image view, and the graphics pipeline was created for this color format.
+        // SAFETY: The command buffer is recording, the dynamic-rendering
+        // attachment references a live swapchain image view, and the
+        // graphics pipeline was created for this color format.
         unsafe {
             logical.cmd_begin_rendering(command_buffer, &rendering_info);
 
@@ -546,7 +562,8 @@ impl VulkanBackend {
             vk::AccessFlags2::NONE,
         );
 
-        // SAFETY: Recording was begun above and all commands have been emitted.
+        // SAFETY: Recording was begun above and all commands have been
+        // emitted.
         vk_try!("end graphics command buffer", unsafe {
             logical.end_command_buffer(command_buffer)
         });
@@ -588,10 +605,13 @@ impl VulkanBackend {
 
         let dependency_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
 
-        // SAFETY: `command_buffer` is recording, and the barrier references the live swapchain
-        // image acquired for this frame.
+        // SAFETY: `command_buffer` is recording, and the barrier references
+        // the live swapchain image acquired for this frame.
         unsafe {
-            self.device.logical().handle().cmd_pipeline_barrier2(command_buffer, &dependency_info);
+            self.device
+                .logical()
+                .handle()
+                .cmd_pipeline_barrier2(command_buffer, &dependency_info);
         }
     }
 }
