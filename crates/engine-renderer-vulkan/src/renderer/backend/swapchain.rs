@@ -103,6 +103,7 @@ impl VulkanSwapchain {
         let desired_image_count = choose_image_count(capabilities);
 
         let image_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT;
+
         if !capabilities.supported_usage_flags.contains(image_usage) {
             return Err(VulkanSwapchainError::UnsupportedColorAttachment);
         }
@@ -159,7 +160,7 @@ impl VulkanSwapchain {
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(surface_format.format)
                 .components(vk::ComponentMapping {
-                    r: vk::ComponentSwizzle::R,
+                    r: vk::ComponentSwizzle::G,
                     g: vk::ComponentSwizzle::G,
                     b: vk::ComponentSwizzle::B,
                     a: vk::ComponentSwizzle::A,

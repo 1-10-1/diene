@@ -494,14 +494,19 @@ impl VulkanBackend {
         // live swapchain image view, and the graphics pipeline was created for this color format.
         unsafe {
             logical.cmd_begin_rendering(command_buffer, &rendering_info);
+
             logical.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.graphics_pipeline.get(),
             );
+
             logical.cmd_set_viewport(command_buffer, 0, &viewports);
+
             logical.cmd_set_scissor(command_buffer, 0, &scissors);
+
             logical.cmd_draw(command_buffer, 3, 1, 0, 0);
+
             logical.cmd_end_rendering(command_buffer);
         }
 
@@ -553,7 +558,9 @@ impl VulkanBackend {
                 base_array_layer: 0,
                 layer_count: 1,
             });
+
         let barriers = [barrier];
+
         let dependency_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
 
         // SAFETY: `command_buffer` is recording, and the barrier references the live swapchain
