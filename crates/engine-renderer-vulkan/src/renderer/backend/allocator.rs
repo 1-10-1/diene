@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use thiserror::Error;
 use vk_mem::{AllocatorCreateFlags, AllocatorCreateInfo};
 
@@ -13,7 +15,7 @@ pub(super) enum VulkanAllocatorError {
 
 #[allow(dead_code)]
 pub(super) struct VulkanAllocator {
-    handle: vk_mem::Allocator,
+    handle: Arc<vk_mem::Allocator>,
 }
 
 impl VulkanAllocator {
@@ -34,6 +36,10 @@ impl VulkanAllocator {
             vk_mem::Allocator::new(create_info)
         });
 
-        Ok(Self { handle })
+        Ok(Self { handle: Arc::new(handle) })
+    }
+
+    pub(super) fn handle(&self) -> Arc<vk_mem::Allocator> {
+        self.handle.clone()
     }
 }

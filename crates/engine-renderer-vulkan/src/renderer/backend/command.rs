@@ -137,4 +137,57 @@ impl VulkanCommand {
     pub(super) fn graphics_command_buffer(&self) -> vk::CommandBuffer {
         self.graphics_command_buffer
     }
+
+    pub(super) fn copy_buffer(
+        &self,
+        queue: vk::Queue,
+        src: vk::Buffer,
+        dst: vk::Buffer,
+        size: vk::DeviceSize,
+    ) -> core::result::Result<(), VulkanCommandError> {
+        let command_buffer = self.graphics_command_buffer;
+
+        // SAFETY: The command buffer was allocated from a pool created with RESET_COMMAND_BUFFER.
+        vk_try!("reset graphics command buffer for copy", unsafe {
+            self.device
+                .handle()
+                .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+        });
+
+        let begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // SAFETY: `command_buffer` is reset and not pending execution.
+        vk_try!("begin graphics command buffer for copy", unsafe {
+            self.device.handle().begin_command_buffer(command_buffer, &begin_info)
+        });
+
+        let regions = [vk::BufferCopy::default().size(size)];
+
+        // SAFETY: Both buffers are live, and the copy region stays within the caller-provided
+        // buffer sizes by construction.
+        unsafe {
+            self.device.handle().cmd_copy_buffer(command_buffer, src, dst, &regions);
+        }
+
+        // SAFETY: Recording was begun above and contains only the copy command.
+        vk_try!("end graphics command buffer for copy", unsafe {
+            self.device.handle().end_command_buffer(command_buffer)
+        });
+
+        let command_buffers = [command_buffer];
+        let submit_infos = [vk::SubmitInfo::default().command_buffers(&command_buffers)];
+
+        // SAFETY: `queue` belongs to the same device as the command buffer. Waiting for queue idle
+        // makes this one-shot upload complete before staging resources are dropped.
+        unsafe {
+            vk_try!(
+                "submit buffer copy",
+                self.device.handle().queue_submit(queue, &submit_infos, vk::Fence::null()),
+            );
+            vk_try!("wait for buffer copy", self.device.handle().queue_wait_idle(queue));
+        }
+
+        Ok(())
+    }
 }

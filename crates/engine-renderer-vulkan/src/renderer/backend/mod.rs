@@ -2,6 +2,7 @@
 mod call_error;
 
 mod allocator;
+mod buffer;
 mod command;
 mod device;
 mod frame;
@@ -10,6 +11,7 @@ mod pipeline;
 mod shader;
 mod surface;
 mod swapchain;
+mod vertex;
 
 use std::{rc::Rc, time::Instant};
 
@@ -67,6 +69,10 @@ pub(super) enum VulkanBackendError {
     #[error("pipeline operation failed")]
     PipelineOperation,
 
+    /// Vulkan vertex-buffer operation failed.
+    #[error("vertex-buffer operation failed")]
+    VertexBufferOperation,
+
     /// Vulkan surface refresh failed.
     #[error("failed to refresh vulkan surface details")]
     RefreshSurface,
@@ -103,6 +109,7 @@ pub(super) struct VulkanBackend {
     frame_sync: frame::VulkanFrameSync,
     graphics_pipeline: pipeline::VulkanGraphicsPipeline,
     pipeline_layout: pipeline::VulkanPipelineLayout,
+    vertex_buffer: vertex::TriangleVertexBuffer,
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
     swapchain: swapchain::VulkanSwapchain,
@@ -181,6 +188,9 @@ impl VulkanBackend {
             command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
 
+        let vertex_buffer = vertex::TriangleVertexBuffer::new(&allocator, &command, &device)
+            .change_context(VulkanBackendError::VertexBufferOperation)?;
+
         let shader_compiler = Rc::new(
             ShaderCompiler::with_options(
                 ShaderCompilerOptions::default()
@@ -223,6 +233,10 @@ impl VulkanBackend {
 
         let graphics_pipeline = pipeline::VulkanGraphicsPipeline::builder()
             .with_shaders([&vk_main_shader])
+            .with_vertex_input(
+                vertex::Vertex::binding_descriptions(),
+                vertex::Vertex::attribute_descriptions(),
+            )
             .with_blending_enabled(false)
             .with_depth_write(false)
             .with_color_attachment_format(surface_config.surface_format.format)
@@ -238,6 +252,7 @@ impl VulkanBackend {
             frame_sync,
             graphics_pipeline,
             pipeline_layout,
+            vertex_buffer,
             command,
             allocator,
             swapchain,
@@ -505,7 +520,14 @@ impl VulkanBackend {
 
             logical.cmd_set_scissor(command_buffer, 0, &scissors);
 
-            logical.cmd_draw(command_buffer, 3, 1, 0, 0);
+            logical.cmd_bind_vertex_buffers(
+                command_buffer,
+                0,
+                &[self.vertex_buffer.handle()],
+                &[0],
+            );
+
+            logical.cmd_draw(command_buffer, self.vertex_buffer.vertex_count(), 1, 0, 0);
 
             logical.cmd_end_rendering(command_buffer);
         }
