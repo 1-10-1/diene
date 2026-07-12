@@ -3,10 +3,18 @@ struct Vertex {
     float4 color;
 };
 
+struct Scene {
+    float4 transformRows[4];
+};
+
 typedef vk::BufferPointer<Vertex, 16> VertexBuffer;
+typedef vk::BufferPointer<uint, 4> IndexBuffer;
+typedef vk::BufferPointer<Scene, 16> SceneBuffer;
 
 struct PushConstants {
     VertexBuffer vertices;
+    IndexBuffer indices;
+    SceneBuffer scene;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -18,11 +26,21 @@ struct VertexOutput {
 
 [shader("vertex")]
 VertexOutput vertMain(uint vertexId : SV_VertexID) {
-    Vertex vertex = pushConstants.vertices.getPtr()[vertexId];
+    uint index = pushConstants.indices.getPtr()[vertexId];
+    Vertex vertex = pushConstants.vertices.getPtr()[index];
+    Scene scene = pushConstants.scene.Get();
 
     VertexOutput output;
-    output.sv_position = vertex.position;
+
+    output.sv_position = float4(
+        dot(scene.transformRows[0], vertex.position),
+        dot(scene.transformRows[1], vertex.position),
+        dot(scene.transformRows[2], vertex.position),
+        dot(scene.transformRows[3], vertex.position)
+    );
+
     output.color = vertex.color.rgb;
+
     return output;
 }
 
@@ -30,5 +48,6 @@ VertexOutput vertMain(uint vertexId : SV_VertexID) {
 float4 fragMain(VertexOutput inVert) : SV_Target
 {
     float3 color = inVert.color;
+
     return float4(color, 1.0);
 }

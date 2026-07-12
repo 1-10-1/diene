@@ -7,11 +7,12 @@ mod command;
 mod device;
 mod frame;
 mod instance;
+mod mesh;
 mod pipeline;
+mod scene;
 mod shader;
 mod surface;
 mod swapchain;
-mod vertex;
 
 use std::{rc::Rc, time::Instant};
 
@@ -69,9 +70,13 @@ pub(super) enum VulkanBackendError {
     #[error("pipeline operation failed")]
     PipelineOperation,
 
-    /// Vulkan vertex-buffer operation failed.
-    #[error("vertex-buffer operation failed")]
-    VertexBufferOperation,
+    /// Vulkan mesh operation failed.
+    #[error("mesh operation failed")]
+    MeshOperation,
+
+    /// Vulkan scene-buffer operation failed.
+    #[error("scene-buffer operation failed")]
+    SceneBufferOperation,
 
     /// Vulkan surface refresh failed.
     #[error("failed to refresh vulkan surface details")]
@@ -111,11 +116,13 @@ pub(super) struct VulkanBackend {
     frame_sync: frame::VulkanFrameSync,
     graphics_pipeline: pipeline::VulkanGraphicsPipeline,
     pipeline_layout: pipeline::VulkanPipelineLayout,
-    vertex_buffer: vertex::TriangleVertexBuffer,
+    scene_buffer: scene::SceneBuffer,
+    mesh: mesh::GpuQuadMesh,
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
     swapchain: swapchain::VulkanSwapchain,
     surface_config: surface::SurfaceConfig,
+    started_at: Instant,
     rendering_paused: bool,
     vsync: bool,
     device: device::VulkanDevice,
@@ -191,8 +198,11 @@ impl VulkanBackend {
             command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
 
-        let vertex_buffer = vertex::TriangleVertexBuffer::new(&allocator, &command, &device)
-            .change_context(VulkanBackendError::VertexBufferOperation)?;
+        let mesh = mesh::GpuQuadMesh::new(&allocator, &command, &device)
+            .change_context(VulkanBackendError::MeshOperation)?;
+
+        let scene_buffer = scene::SceneBuffer::new(&allocator, &device)
+            .change_context(VulkanBackendError::SceneBufferOperation)?;
 
         let shader_compiler = Rc::new(
             ShaderCompiler::with_options(
@@ -234,10 +244,7 @@ impl VulkanBackend {
             .change_context(VulkanBackendError::ShaderCompilation)?;
 
         let pipeline_layout = pipeline::VulkanPipelineLayout::builder()
-            .with_push_constants(
-                vertex::VERTEX_BUFFER_ADDRESS_PUSH_CONSTANT_SIZE,
-                vk::ShaderStageFlags::VERTEX,
-            )
+            .with_push_constants(mesh::DRAW_PUSH_CONSTANT_SIZE, vk::ShaderStageFlags::VERTEX)
             .build(device.logical().clone())
             .change_context(VulkanBackendError::PipelineOperation)?;
 
@@ -247,7 +254,7 @@ impl VulkanBackend {
             .with_depth_write(false)
             .with_color_attachment_format(surface_config.surface_format.format)
             .with_depth_attachment_format(vk::Format::UNDEFINED)
-            .build(&device, "triangle", &pipeline_layout)
+            .build(&device, "indexed-quad", &pipeline_layout)
             .change_context(VulkanBackendError::PipelineOperation)?;
 
         let frame_sync =
@@ -258,11 +265,13 @@ impl VulkanBackend {
             frame_sync,
             graphics_pipeline,
             pipeline_layout,
-            vertex_buffer,
+            scene_buffer,
+            mesh,
             command,
             allocator,
             swapchain,
             surface_config,
+            started_at: Instant::now(),
             rendering_paused: false,
             vsync,
             device,
@@ -325,6 +334,10 @@ impl VulkanBackend {
         vk_try!("reset graphics command buffer", unsafe {
             logical.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
         });
+
+        self.scene_buffer
+            .update(self.started_at.elapsed())
+            .map_err(|_| VulkanBackendError::SceneBufferOperation)?;
 
         self.record_triangle_commands(command_buffer, image_index)?;
 
@@ -536,7 +549,7 @@ impl VulkanBackend {
 
             logical.cmd_set_scissor(command_buffer, 0, &scissors);
 
-            let push_constants = self.vertex_buffer.push_constants();
+            let push_constants = self.mesh.push_constants(self.scene_buffer.device_address());
 
             logical.cmd_push_constants(
                 command_buffer,
@@ -546,7 +559,7 @@ impl VulkanBackend {
                 push_constants.as_bytes(),
             );
 
-            logical.cmd_draw(command_buffer, self.vertex_buffer.vertex_count(), 1, 0, 0);
+            logical.cmd_draw(command_buffer, self.mesh.index_count(), 1, 0, 0);
 
             logical.cmd_end_rendering(command_buffer);
         }

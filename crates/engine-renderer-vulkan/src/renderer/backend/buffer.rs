@@ -103,7 +103,7 @@ impl VulkanBuffer {
             AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
         )?;
 
-        staging.write(bytes)?;
+        staging.write_bytes(bytes)?;
 
         let buffer = Self::new(
             device,
@@ -129,7 +129,10 @@ impl VulkanBuffer {
         unsafe { device.handle().get_buffer_device_address(&info) }
     }
 
-    fn write(&mut self, bytes: &[u8]) -> core::result::Result<(), VulkanBufferError> {
+    pub(super) fn write_bytes(
+        &mut self,
+        bytes: &[u8],
+    ) -> core::result::Result<(), VulkanBufferError> {
         let size = vk::DeviceSize::try_from(bytes.len())
             .map_err(|_| VulkanBufferError::BufferTooLarge { bytes: bytes.len() })?;
 
