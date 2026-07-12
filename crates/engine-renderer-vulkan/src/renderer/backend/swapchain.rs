@@ -160,7 +160,7 @@ impl VulkanSwapchain {
                 .view_type(vk::ImageViewType::TYPE_2D)
                 .format(surface_format.format)
                 .components(vk::ComponentMapping {
-                    r: vk::ComponentSwizzle::G,
+                    r: vk::ComponentSwizzle::R,
                     g: vk::ComponentSwizzle::G,
                     b: vk::ComponentSwizzle::B,
                     a: vk::ComponentSwizzle::A,
