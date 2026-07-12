@@ -95,7 +95,7 @@ impl VulkanBuffer {
         let mut staging = Self::new(
             device,
             allocator.clone(),
-            c"staging vertex buffer",
+            c"staging vulkan buffer",
             size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             MemoryUsage::AutoPreferHost,
@@ -119,8 +119,12 @@ impl VulkanBuffer {
         Ok(buffer)
     }
 
-    pub(super) fn handle(&self) -> vk::Buffer {
-        self.handle
+    pub(super) fn device_address(&self, device: &VulkanLogicalDevice) -> vk::DeviceAddress {
+        let info = vk::BufferDeviceAddressInfo::default().buffer(self.handle);
+
+        // SAFETY: `self.handle` is live and was created with SHADER_DEVICE_ADDRESS usage by callers
+        // that need an address.
+        unsafe { device.handle().get_buffer_device_address(&info) }
     }
 
     fn write(&mut self, bytes: &[u8]) -> core::result::Result<(), VulkanBufferError> {

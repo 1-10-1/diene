@@ -9,10 +9,12 @@ use crate::renderer::backend::{
 };
 
 const TRIANGLE_VERTICES: [Vertex; 3] = [
-    Vertex { position: [0.0, -0.5], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [0.5, 0.5], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [-0.5, 0.5], color: [0.0, 0.0, 1.0] },
+    Vertex { position: [0.0, -0.5, 0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
+    Vertex { position: [0.5, 0.5, 0.0, 1.0], color: [0.0, 1.0, 0.0, 1.0] },
+    Vertex { position: [-0.5, 0.5, 0.0, 1.0], color: [0.0, 0.0, 1.0, 1.0] },
 ];
+
+pub(super) const VERTEX_BUFFER_ADDRESS_PUSH_CONSTANT_SIZE: u32 = 8;
 
 #[derive(Debug, Error)]
 pub(super) enum VulkanVertexBufferError {
@@ -21,43 +23,39 @@ pub(super) enum VulkanVertexBufferError {
 
     #[error("vertex count {count} does not fit u32")]
     VertexCountTooLarge { count: usize },
+
+    #[error("vertex buffer device address is null")]
+    NullDeviceAddress,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Vertex {
-    position: [f32; 2],
-    color: [f32; 3],
+    position: [f32; 4],
+    color: [f32; 4],
 }
 
-impl Vertex {
-    #[allow(clippy::as_conversions, clippy::cast_possible_truncation)]
-    pub(super) fn binding_descriptions() -> [vk::VertexInputBindingDescription; 1] {
-        [vk::VertexInputBindingDescription::default()
-            .binding(0)
-            .stride(core::mem::size_of::<Self>() as u32)
-            .input_rate(vk::VertexInputRate::VERTEX)]
-    }
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub(super) struct VertexBufferAddressPushConstants {
+    vertices: vk::DeviceAddress,
+}
 
-    #[allow(clippy::as_conversions, clippy::cast_possible_truncation)]
-    pub(super) fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
-        [
-            vk::VertexInputAttributeDescription::default()
-                .binding(0)
-                .location(0)
-                .format(vk::Format::R32G32_SFLOAT)
-                .offset(core::mem::offset_of!(Self, position) as u32),
-            vk::VertexInputAttributeDescription::default()
-                .binding(0)
-                .location(1)
-                .format(vk::Format::R32G32B32_SFLOAT)
-                .offset(core::mem::offset_of!(Self, color) as u32),
-        ]
+impl VertexBufferAddressPushConstants {
+    pub(super) fn as_bytes(&self) -> &[u8] {
+        // SAFETY: `Self` is a plain repr(C) POD push-constant payload.
+        unsafe {
+            core::slice::from_raw_parts(
+                core::ptr::from_ref(self).cast::<u8>(),
+                core::mem::size_of::<Self>(),
+            )
+        }
     }
 }
 
 pub(super) struct TriangleVertexBuffer {
     buffer: VulkanBuffer,
+    device_address: vk::DeviceAddress,
     vertex_count: u32,
 }
 
@@ -65,6 +63,7 @@ impl std::fmt::Debug for TriangleVertexBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TriangleVertexBuffer")
             .field("buffer", &self.buffer)
+            .field("device_address", &self.device_address)
             .field("vertex_count", &self.vertex_count)
             .finish()
     }
@@ -88,18 +87,24 @@ impl TriangleVertexBuffer {
             device.graphics_queue(),
             c"triangle vertex buffer",
             bytes,
-            vk::BufferUsageFlags::VERTEX_BUFFER,
+            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
         )?;
 
-        Ok(Self { buffer, vertex_count })
-    }
+        let device_address = buffer.device_address(device.logical());
 
-    pub(super) fn handle(&self) -> vk::Buffer {
-        self.buffer.handle()
+        if device_address == 0 {
+            return Err(VulkanVertexBufferError::NullDeviceAddress);
+        }
+
+        Ok(Self { buffer, device_address, vertex_count })
     }
 
     pub(super) fn vertex_count(&self) -> u32 {
         self.vertex_count
+    }
+
+    pub(super) fn push_constants(&self) -> VertexBufferAddressPushConstants {
+        VertexBufferAddressPushConstants { vertices: self.device_address }
     }
 }
 

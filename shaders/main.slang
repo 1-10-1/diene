@@ -1,7 +1,15 @@
-struct VertexInput {
-    [vk::location(0)] float2 position;
-    [vk::location(1)] float3 color;
+struct Vertex {
+    float4 position;
+    float4 color;
 };
+
+typedef vk::BufferPointer<Vertex, 16> VertexBuffer;
+
+struct PushConstants {
+    VertexBuffer vertices;
+};
+
+[[vk::push_constant]] PushConstants pushConstants;
 
 struct VertexOutput {
     float3 color;
@@ -9,10 +17,12 @@ struct VertexOutput {
 };
 
 [shader("vertex")]
-VertexOutput vertMain(VertexInput input) {
+VertexOutput vertMain(uint vertexId : SV_VertexID) {
+    Vertex vertex = pushConstants.vertices.getPtr()[vertexId];
+
     VertexOutput output;
-    output.sv_position = float4(input.position, 0.0, 1.0);
-    output.color = input.color;
+    output.sv_position = vertex.position;
+    output.color = vertex.color.rgb;
     return output;
 }
 

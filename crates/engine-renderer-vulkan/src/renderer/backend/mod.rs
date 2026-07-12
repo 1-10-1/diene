@@ -16,7 +16,7 @@ mod vertex;
 use std::{rc::Rc, time::Instant};
 
 use ash::vk::{self, Extent2D};
-use common::logging::macros::{debug, warn};
+use common::logging::macros::{debug, info, warn};
 use engine_renderer_api::{RenderExtent, RenderWindow};
 use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
@@ -228,15 +228,15 @@ impl VulkanBackend {
             .change_context(VulkanBackendError::ShaderCompilation)?;
 
         let pipeline_layout = pipeline::VulkanPipelineLayout::builder()
+            .with_push_constants(
+                vertex::VERTEX_BUFFER_ADDRESS_PUSH_CONSTANT_SIZE,
+                vk::ShaderStageFlags::VERTEX,
+            )
             .build(device.logical().clone())
             .change_context(VulkanBackendError::PipelineOperation)?;
 
         let graphics_pipeline = pipeline::VulkanGraphicsPipeline::builder()
             .with_shaders([&vk_main_shader])
-            .with_vertex_input(
-                vertex::Vertex::binding_descriptions(),
-                vertex::Vertex::attribute_descriptions(),
-            )
             .with_blending_enabled(false)
             .with_depth_write(false)
             .with_color_attachment_format(surface_config.surface_format.format)
@@ -520,11 +520,14 @@ impl VulkanBackend {
 
             logical.cmd_set_scissor(command_buffer, 0, &scissors);
 
-            logical.cmd_bind_vertex_buffers(
+            let push_constants = self.vertex_buffer.push_constants();
+
+            logical.cmd_push_constants(
                 command_buffer,
+                self.pipeline_layout.get(),
+                vk::ShaderStageFlags::VERTEX,
                 0,
-                &[self.vertex_buffer.handle()],
-                &[0],
+                push_constants.as_bytes(),
             );
 
             logical.cmd_draw(command_buffer, self.vertex_buffer.vertex_count(), 1, 0, 0);
