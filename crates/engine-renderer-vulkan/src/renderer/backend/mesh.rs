@@ -53,30 +53,6 @@ struct Vertex {
     uv: [f32; 4],
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub(super) struct DrawPushConstants {
-    vertices: vk::DeviceAddress,
-    indices: vk::DeviceAddress,
-    scene: vk::DeviceAddress,
-    material: vk::DeviceAddress,
-}
-
-pub(super) const DRAW_PUSH_CONSTANT_SIZE: u32 = 32;
-
-impl DrawPushConstants {
-    pub(super) fn as_bytes(&self) -> &[u8] {
-        // SAFETY: `Self` is a repr(C) POD push-constant payload containing
-        // only device addresses.
-        unsafe {
-            core::slice::from_raw_parts(
-                core::ptr::from_ref(self).cast::<u8>(),
-                core::mem::size_of::<Self>(),
-            )
-        }
-    }
-}
-
 pub(super) struct GpuQuadMesh {
     vertices: VulkanBuffer,
     indices: VulkanBuffer,
@@ -138,17 +114,12 @@ impl GpuQuadMesh {
         self.index_count
     }
 
-    pub(super) fn push_constants(
-        &self,
-        scene: vk::DeviceAddress,
-        material: vk::DeviceAddress,
-    ) -> DrawPushConstants {
-        DrawPushConstants {
-            vertices: self.vertex_address,
-            indices: self.index_address,
-            scene,
-            material,
-        }
+    pub(super) fn vertex_address(&self) -> vk::DeviceAddress {
+        self.vertex_address
+    }
+
+    pub(super) fn index_address(&self) -> vk::DeviceAddress {
+        self.index_address
     }
 }
 

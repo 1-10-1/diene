@@ -4,7 +4,9 @@ mod call_error;
 mod allocator;
 mod buffer;
 mod command;
+mod depth;
 mod device;
+mod draw;
 mod frame;
 mod image;
 mod instance;
@@ -73,6 +75,14 @@ pub(super) enum VulkanBackendError {
     #[error("pipeline operation failed")]
     PipelineOperation,
 
+    /// Vulkan depth attachment operation failed.
+    #[error("depth attachment operation failed")]
+    DepthOperation,
+
+    /// Vulkan draw-list operation failed.
+    #[error("draw-list operation failed")]
+    DrawOperation,
+
     /// Vulkan mesh operation failed.
     #[error("mesh operation failed")]
     MeshOperation,
@@ -127,7 +137,9 @@ pub(super) struct VulkanBackend {
     frame_sync: frame::VulkanFrameSync,
     graphics_pipeline: pipeline::VulkanGraphicsPipeline,
     pipeline_layout: pipeline::VulkanPipelineLayout,
-    material_buffer: material::MaterialBuffer,
+    depth_attachment: depth::DepthAttachment,
+    draw_list: draw::GpuDrawList,
+    material_table: material::MaterialTable,
     texture_heap: texture::BindlessTextureHeap,
     scene_buffer: scene::SceneBuffer,
     mesh: mesh::GpuQuadMesh,
@@ -220,9 +232,26 @@ impl VulkanBackend {
         let texture_heap = texture::BindlessTextureHeap::new(&allocator, &command, &device)
             .change_context(VulkanBackendError::TextureOperation)?;
 
-        let material_buffer =
-            material::MaterialBuffer::new(&allocator, &device, texture_heap.default_handle())
-                .change_context(VulkanBackendError::MaterialBufferOperation)?;
+        let material_buffer = material::MaterialTable::new(
+            &allocator,
+            &command,
+            &device,
+            texture_heap.default_handle(),
+        )
+        .change_context(VulkanBackendError::MaterialBufferOperation)?;
+
+        let draw_list = draw::GpuDrawList::for_quad(
+            &allocator,
+            &command,
+            &device,
+            &mesh,
+            material_buffer.default_material(),
+        )
+        .change_context(VulkanBackendError::DrawOperation)?;
+
+        let depth_attachment =
+            depth::DepthAttachment::new(&allocator, &device, surface_config.extent)
+                .change_context(VulkanBackendError::DepthOperation)?;
 
         let shader_compiler = Rc::new(
             ShaderCompiler::with_options(
@@ -266,7 +295,7 @@ impl VulkanBackend {
         let pipeline_layout = pipeline::VulkanPipelineLayout::builder()
             .with_descriptor_set_layouts([texture_heap.descriptor_set_layout()])
             .with_push_constants(
-                mesh::DRAW_PUSH_CONSTANT_SIZE,
+                draw::DRAW_PUSH_CONSTANT_SIZE,
                 vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             )
             .build(device.logical().clone())
@@ -275,10 +304,11 @@ impl VulkanBackend {
         let graphics_pipeline = pipeline::VulkanGraphicsPipeline::builder()
             .with_shaders([&vk_main_shader])
             .with_blending_enabled(false)
-            .with_depth_write(false)
+            .with_depth_test(true, vk::CompareOp::LESS)
+            .with_depth_write(true)
             .with_color_attachment_format(surface_config.surface_format.format)
-            .with_depth_attachment_format(vk::Format::UNDEFINED)
-            .build(&device, "textured-quad", &pipeline_layout)
+            .with_depth_attachment_format(depth::DEPTH_FORMAT)
+            .build(&device, "gpu-driven-quad", &pipeline_layout)
             .change_context(VulkanBackendError::PipelineOperation)?;
 
         let frame_sync =
@@ -289,7 +319,9 @@ impl VulkanBackend {
             frame_sync,
             graphics_pipeline,
             pipeline_layout,
-            material_buffer,
+            depth_attachment,
+            draw_list,
+            material_table: material_buffer,
             texture_heap,
             scene_buffer,
             mesh,
@@ -316,7 +348,8 @@ impl VulkanBackend {
             return Ok(());
         }
 
-        let logical = self.device.logical().handle();
+        let logical_device = self.device.logical().clone();
+        let logical = logical_device.handle();
         let command_buffer = self.command.graphics_command_buffer();
         let in_flight = self.frame_sync.in_flight();
         let in_flight_fences = [in_flight];
@@ -365,7 +398,7 @@ impl VulkanBackend {
             .update(self.started_at.elapsed())
             .map_err(|_| VulkanBackendError::SceneBufferOperation)?;
 
-        self.record_triangle_commands(command_buffer, image_index)?;
+        self.record_render_commands(command_buffer, image_index)?;
 
         // SAFETY: Reset immediately before submission so failures before this
         // point leave the fence signaled for the next frame.
@@ -486,16 +519,20 @@ impl VulkanBackend {
 
         let frame_sync =
             frame::VulkanFrameSync::new(self.device.logical().clone(), swapchain.image_count())?;
+        let depth_attachment =
+            depth::DepthAttachment::new(&self.allocator, &self.device, surface_config.extent)
+                .map_err(|_| VulkanBackendError::DepthOperation)?;
 
         self.frame_sync = frame_sync;
         self.swapchain = swapchain;
+        self.depth_attachment = depth_attachment;
         self.surface_config = surface_config;
 
         Ok(())
     }
 
-    fn record_triangle_commands(
-        &self,
+    fn record_render_commands(
+        &mut self,
         command_buffer: vk::CommandBuffer,
         image_index: u32,
     ) -> core::result::Result<(), VulkanBackendError> {
@@ -509,7 +546,8 @@ impl VulkanBackend {
             .image_view(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
 
-        let logical = self.device.logical().handle();
+        let logical_device = self.device.logical().clone();
+        let logical = logical_device.handle();
 
         let extent = self.surface_config.extent;
 
@@ -518,6 +556,8 @@ impl VulkanBackend {
         vk_try!("begin graphics command buffer", unsafe {
             logical.begin_command_buffer(command_buffer, &vk::CommandBufferBeginInfo::default())
         });
+
+        self.depth_attachment.transition_for_render(command_buffer);
 
         self.transition_swapchain_image(
             command_buffer,
@@ -541,12 +581,22 @@ impl VulkanBackend {
 
         let color_attachments = [color_attachment];
 
+        let depth_attachment = vk::RenderingAttachmentInfo::default()
+            .image_view(self.depth_attachment.view())
+            .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .clear_value(vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue { depth: 1.0, stencil: 0 },
+            });
+
         let render_area = vk::Rect2D { offset: vk::Offset2D::default(), extent };
 
         let rendering_info = vk::RenderingInfo::default()
             .render_area(render_area)
             .layer_count(1)
-            .color_attachments(&color_attachments);
+            .color_attachments(&color_attachments)
+            .depth_attachment(&depth_attachment);
 
         let viewport = vk::Viewport {
             x: 0.0,
@@ -586,9 +636,9 @@ impl VulkanBackend {
                 &[],
             );
 
-            let push_constants = self.mesh.push_constants(
+            let push_constants = self.draw_list.push_constants(
+                self.material_table.device_address(),
                 self.scene_buffer.device_address(),
-                self.material_buffer.device_address(),
             );
 
             logical.cmd_push_constants(
@@ -599,7 +649,13 @@ impl VulkanBackend {
                 push_constants.as_bytes(),
             );
 
-            logical.cmd_draw(command_buffer, self.mesh.index_count(), 1, 0, 0);
+            logical.cmd_draw_indirect(
+                command_buffer,
+                self.draw_list.indirect_buffer(),
+                0,
+                self.draw_list.draw_count(),
+                self.draw_list.indirect_stride(),
+            );
 
             logical.cmd_end_rendering(command_buffer);
         }

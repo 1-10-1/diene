@@ -18,11 +18,19 @@ typedef vk::BufferPointer<uint, 4> IndexBuffer;
 typedef vk::BufferPointer<Scene, 16> SceneBuffer;
 typedef vk::BufferPointer<Material, 16> MaterialBuffer;
 
-struct PushConstants {
+struct DrawItem {
     VertexBuffer vertices;
     IndexBuffer indices;
+    uint materialIndex;
+    uint3 _padding;
+};
+
+typedef vk::BufferPointer<DrawItem, 16> DrawBuffer;
+
+struct PushConstants {
+    DrawBuffer draws;
+    MaterialBuffer materials;
     SceneBuffer scene;
-    MaterialBuffer material;
 };
 
 [[vk::push_constant]] PushConstants pushConstants;
@@ -33,13 +41,15 @@ struct PushConstants {
 struct VertexOutput {
     float4 color;
     float2 uv;
+    nointerpolation uint materialIndex;
     float4 sv_position : SV_Position;
 };
 
 [shader("vertex")]
-VertexOutput vertMain(uint vertexId : SV_VertexID) {
-    uint index = pushConstants.indices.getPtr()[vertexId];
-    Vertex vertex = pushConstants.vertices.getPtr()[index];
+VertexOutput vertMain(uint vertexId : SV_VertexID, uint drawId : SV_DrawIndex) {
+    DrawItem draw = pushConstants.draws.getPtr()[drawId];
+    uint index = draw.indices.getPtr()[vertexId];
+    Vertex vertex = draw.vertices.getPtr()[index];
     Scene scene = pushConstants.scene.Get();
 
     VertexOutput output;
@@ -53,6 +63,7 @@ VertexOutput vertMain(uint vertexId : SV_VertexID) {
 
     output.color = vertex.color;
     output.uv = vertex.uv.xy;
+    output.materialIndex = draw.materialIndex;
 
     return output;
 }
@@ -60,7 +71,7 @@ VertexOutput vertMain(uint vertexId : SV_VertexID) {
 [shader("fragment")]
 float4 fragMain(VertexOutput inVert) : SV_Target
 {
-    Material material = pushConstants.material.Get();
+    Material material = pushConstants.materials.getPtr()[inVert.materialIndex];
     float4 albedo = textures[NonUniformResourceIndex(material.albedoTextureIndex)].Sample(
         textureSampler,
         inVert.uv
