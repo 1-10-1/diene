@@ -197,4 +197,137 @@ impl VulkanCommand {
 
         Ok(())
     }
+
+    pub(super) fn copy_buffer_to_image(
+        &self,
+        queue: vk::Queue,
+        src: vk::Buffer,
+        dst: vk::Image,
+        extent: vk::Extent3D,
+    ) -> core::result::Result<(), VulkanCommandError> {
+        let command_buffer = self.graphics_command_buffer;
+
+        // SAFETY: The command buffer was allocated from a pool created with
+        // RESET_COMMAND_BUFFER.
+        vk_try!("reset graphics command buffer for image copy", unsafe {
+            self.device
+                .handle()
+                .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+        });
+
+        let begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // SAFETY: `command_buffer` is reset and not pending execution.
+        vk_try!("begin graphics command buffer for image copy", unsafe {
+            self.device.handle().begin_command_buffer(command_buffer, &begin_info)
+        });
+
+        transition_image_layout(
+            self.device.handle(),
+            command_buffer,
+            dst,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::PipelineStageFlags2::NONE,
+            vk::AccessFlags2::NONE,
+            vk::PipelineStageFlags2::TRANSFER,
+            vk::AccessFlags2::TRANSFER_WRITE,
+        );
+
+        let regions = [vk::BufferImageCopy::default()
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_extent(extent)];
+
+        // SAFETY: Source buffer and destination image are live. The image is
+        // in TRANSFER_DST_OPTIMAL layout and the copy covers mip 0 layer 0.
+        unsafe {
+            self.device.handle().cmd_copy_buffer_to_image(
+                command_buffer,
+                src,
+                dst,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &regions,
+            );
+        }
+
+        transition_image_layout(
+            self.device.handle(),
+            command_buffer,
+            dst,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::PipelineStageFlags2::TRANSFER,
+            vk::AccessFlags2::TRANSFER_WRITE,
+            vk::PipelineStageFlags2::FRAGMENT_SHADER,
+            vk::AccessFlags2::SHADER_SAMPLED_READ,
+        );
+
+        // SAFETY: Recording was begun above and contains only upload
+        // commands.
+        vk_try!("end graphics command buffer for image copy", unsafe {
+            self.device.handle().end_command_buffer(command_buffer)
+        });
+
+        let command_buffers = [command_buffer];
+        let submit_infos = [vk::SubmitInfo::default().command_buffers(&command_buffers)];
+
+        // SAFETY: `queue` belongs to the same device as the command buffer.
+        // Waiting for queue idle makes this one-shot upload complete before
+        // staging resources are dropped.
+        unsafe {
+            vk_try!(
+                "submit image copy",
+                self.device.handle().queue_submit(queue, &submit_infos, vk::Fence::null()),
+            );
+            vk_try!("wait for image copy", self.device.handle().queue_wait_idle(queue));
+        }
+
+        Ok(())
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn transition_image_layout(
+    device: &ash::Device,
+    command_buffer: vk::CommandBuffer,
+    image: vk::Image,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    src_stage: vk::PipelineStageFlags2,
+    src_access: vk::AccessFlags2,
+    dst_stage: vk::PipelineStageFlags2,
+    dst_access: vk::AccessFlags2,
+) {
+    let barrier = vk::ImageMemoryBarrier2::default()
+        .src_stage_mask(src_stage)
+        .src_access_mask(src_access)
+        .dst_stage_mask(dst_stage)
+        .dst_access_mask(dst_access)
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .image(image)
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        });
+
+    let barriers = [barrier];
+    let dependency_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
+
+    // SAFETY: `command_buffer` is recording, and the barrier references a
+    // live image owned by the renderer.
+    unsafe {
+        device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+    }
 }

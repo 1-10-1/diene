@@ -129,6 +129,10 @@ impl VulkanBuffer {
         unsafe { device.handle().get_buffer_device_address(&info) }
     }
 
+    pub(super) fn handle(&self) -> vk::Buffer {
+        self.handle
+    }
+
     pub(super) fn write_bytes(
         &mut self,
         bytes: &[u8],

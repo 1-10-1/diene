@@ -6,13 +6,16 @@ mod buffer;
 mod command;
 mod device;
 mod frame;
+mod image;
 mod instance;
+mod material;
 mod mesh;
 mod pipeline;
 mod scene;
 mod shader;
 mod surface;
 mod swapchain;
+mod texture;
 
 use std::{rc::Rc, time::Instant};
 
@@ -78,6 +81,14 @@ pub(super) enum VulkanBackendError {
     #[error("scene-buffer operation failed")]
     SceneBufferOperation,
 
+    /// Vulkan material-buffer operation failed.
+    #[error("material-buffer operation failed")]
+    MaterialBufferOperation,
+
+    /// Vulkan texture operation failed.
+    #[error("texture operation failed")]
+    TextureOperation,
+
     /// Vulkan surface refresh failed.
     #[error("failed to refresh vulkan surface details")]
     RefreshSurface,
@@ -112,10 +123,12 @@ pub(super) enum VulkanBackendError {
 
 #[allow(dead_code)]
 pub(super) struct VulkanBackend {
-    // Rust drops fields in declaration order. Keep Vulkan children above their parents.
+    // NOTE: Fields are dropped in declaration order. Keep Vulkan children above their parents.
     frame_sync: frame::VulkanFrameSync,
     graphics_pipeline: pipeline::VulkanGraphicsPipeline,
     pipeline_layout: pipeline::VulkanPipelineLayout,
+    material_buffer: material::MaterialBuffer,
+    texture_heap: texture::BindlessTextureHeap,
     scene_buffer: scene::SceneBuffer,
     mesh: mesh::GpuQuadMesh,
     command: command::VulkanCommand,
@@ -204,6 +217,13 @@ impl VulkanBackend {
         let scene_buffer = scene::SceneBuffer::new(&allocator, &device)
             .change_context(VulkanBackendError::SceneBufferOperation)?;
 
+        let texture_heap = texture::BindlessTextureHeap::new(&allocator, &command, &device)
+            .change_context(VulkanBackendError::TextureOperation)?;
+
+        let material_buffer =
+            material::MaterialBuffer::new(&allocator, &device, texture_heap.default_handle())
+                .change_context(VulkanBackendError::MaterialBufferOperation)?;
+
         let shader_compiler = Rc::new(
             ShaderCompiler::with_options(
                 ShaderCompilerOptions::default()
@@ -244,7 +264,11 @@ impl VulkanBackend {
             .change_context(VulkanBackendError::ShaderCompilation)?;
 
         let pipeline_layout = pipeline::VulkanPipelineLayout::builder()
-            .with_push_constants(mesh::DRAW_PUSH_CONSTANT_SIZE, vk::ShaderStageFlags::VERTEX)
+            .with_descriptor_set_layouts([texture_heap.descriptor_set_layout()])
+            .with_push_constants(
+                mesh::DRAW_PUSH_CONSTANT_SIZE,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+            )
             .build(device.logical().clone())
             .change_context(VulkanBackendError::PipelineOperation)?;
 
@@ -254,7 +278,7 @@ impl VulkanBackend {
             .with_depth_write(false)
             .with_color_attachment_format(surface_config.surface_format.format)
             .with_depth_attachment_format(vk::Format::UNDEFINED)
-            .build(&device, "indexed-quad", &pipeline_layout)
+            .build(&device, "textured-quad", &pipeline_layout)
             .change_context(VulkanBackendError::PipelineOperation)?;
 
         let frame_sync =
@@ -265,6 +289,8 @@ impl VulkanBackend {
             frame_sync,
             graphics_pipeline,
             pipeline_layout,
+            material_buffer,
+            texture_heap,
             scene_buffer,
             mesh,
             command,
@@ -549,12 +575,26 @@ impl VulkanBackend {
 
             logical.cmd_set_scissor(command_buffer, 0, &scissors);
 
-            let push_constants = self.mesh.push_constants(self.scene_buffer.device_address());
+            let descriptor_sets = [self.texture_heap.descriptor_set()];
+
+            logical.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout.get(),
+                0,
+                &descriptor_sets,
+                &[],
+            );
+
+            let push_constants = self.mesh.push_constants(
+                self.scene_buffer.device_address(),
+                self.material_buffer.device_address(),
+            );
 
             logical.cmd_push_constants(
                 command_buffer,
                 self.pipeline_layout.get(),
-                vk::ShaderStageFlags::VERTEX,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 0,
                 push_constants.as_bytes(),
             );

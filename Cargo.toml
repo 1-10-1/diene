@@ -38,6 +38,7 @@ shader-slang = "0.1.0"
 ash-window = "0.13.0"
 vk-mem = "0.5.0"
 error-stack = "0.5"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 raw-window-handle = { version = "0.6", features = ["std"] }
 thiserror = "2"
 tracing = "0.1"

@@ -9,16 +9,29 @@ use crate::renderer::backend::{
 };
 
 const QUAD_VERTICES: [Vertex; 4] = [
-    Vertex { position: [-0.5, -0.5, 0.0, 1.0], color: [1.0, 0.0, 0.0, 1.0] },
-    Vertex { position: [0.5, -0.5, 0.0, 1.0], color: [0.0, 1.0, 0.0, 1.0] },
-    Vertex { position: [0.5, 0.5, 0.0, 1.0], color: [0.0, 0.0, 1.0, 1.0] },
-    Vertex { position: [-0.5, 0.5, 0.0, 1.0], color: [1.0, 1.0, 1.0, 1.0] },
+    Vertex {
+        position: [-0.5, -0.5, 0.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        uv: [0.0, 1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        uv: [1.0, 1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, 0.5, 0.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        uv: [1.0, 0.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5, 0.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+        uv: [0.0, 0.0, 0.0, 0.0],
+    },
 ];
 
 const QUAD_INDICES: [u32; 6] = [0, 1, 2, 2, 3, 0];
-
-const DEVICE_ADDRESS_SIZE: u32 = 8;
-pub(super) const DRAW_PUSH_CONSTANT_SIZE: u32 = DEVICE_ADDRESS_SIZE * 3;
 
 #[derive(Debug, Error)]
 pub(super) enum VulkanMeshError {
@@ -37,6 +50,7 @@ pub(super) enum VulkanMeshError {
 struct Vertex {
     position: [f32; 4],
     color: [f32; 4],
+    uv: [f32; 4],
 }
 
 #[repr(C)]
@@ -45,7 +59,10 @@ pub(super) struct DrawPushConstants {
     vertices: vk::DeviceAddress,
     indices: vk::DeviceAddress,
     scene: vk::DeviceAddress,
+    material: vk::DeviceAddress,
 }
+
+pub(super) const DRAW_PUSH_CONSTANT_SIZE: u32 = 32;
 
 impl DrawPushConstants {
     pub(super) fn as_bytes(&self) -> &[u8] {
@@ -121,8 +138,17 @@ impl GpuQuadMesh {
         self.index_count
     }
 
-    pub(super) fn push_constants(&self, scene: vk::DeviceAddress) -> DrawPushConstants {
-        DrawPushConstants { vertices: self.vertex_address, indices: self.index_address, scene }
+    pub(super) fn push_constants(
+        &self,
+        scene: vk::DeviceAddress,
+        material: vk::DeviceAddress,
+    ) -> DrawPushConstants {
+        DrawPushConstants {
+            vertices: self.vertex_address,
+            indices: self.index_address,
+            scene,
+            material,
+        }
     }
 }
 
