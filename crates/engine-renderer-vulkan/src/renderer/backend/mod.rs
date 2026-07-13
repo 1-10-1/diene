@@ -23,7 +23,7 @@ use std::{rc::Rc, time::Instant};
 
 use ash::vk::{self, Extent2D};
 use common::logging::macros::*;
-use engine_renderer_api::{RenderExtent, RenderWindow};
+use engine_renderer_api::{MaterialData, MeshData, RenderExtent, RenderWindow};
 use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
@@ -82,6 +82,13 @@ pub(super) enum VulkanBackendError {
     /// Vulkan draw-list operation failed.
     #[error("draw-list operation failed")]
     DrawOperation,
+
+    /// Material index for a generated draw item was not available.
+    #[error("material index {index} was not available")]
+    MaterialIndexUnavailable {
+        /// Material index requested by the draw item.
+        index: usize,
+    },
 
     /// Vulkan mesh operation failed.
     #[error("mesh operation failed")]
@@ -142,7 +149,7 @@ pub(super) struct VulkanBackend {
     material_table: material::MaterialTable,
     texture_heap: texture::BindlessTextureHeap,
     scene_buffer: scene::SceneBuffer,
-    mesh: mesh::GpuQuadMesh,
+    meshes: Vec<mesh::GpuMesh>,
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
     swapchain: swapchain::VulkanSwapchain,
@@ -223,31 +230,43 @@ impl VulkanBackend {
             command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
 
-        let mesh = mesh::GpuQuadMesh::new(&allocator, &command, &device)
-            .change_context(VulkanBackendError::MeshOperation)?;
+        let mesh_data = procedural_meshes();
+        let mut meshes = Vec::with_capacity(mesh_data.len());
+        for data in &mesh_data {
+            meshes.push(
+                mesh::GpuMesh::from_data(&allocator, &command, &device, data)
+                    .change_context(VulkanBackendError::MeshOperation)?,
+            );
+        }
 
         let scene_buffer = scene::SceneBuffer::new(&allocator, &device)
             .change_context(VulkanBackendError::SceneBufferOperation)?;
 
-        let texture_heap = texture::BindlessTextureHeap::new(&allocator, &command, &device)
+        let mut texture_heap = texture::BindlessTextureHeap::new(&allocator, &command, &device)
             .change_context(VulkanBackendError::TextureOperation)?;
 
+        let materials = procedural_materials();
         let material_buffer = material::MaterialTable::new(
             &allocator,
             &command,
             &device,
-            texture_heap.default_handle(),
+            &mut texture_heap,
+            &materials,
         )
         .change_context(VulkanBackendError::MaterialBufferOperation)?;
 
-        let draw_list = draw::GpuDrawList::for_quad(
-            &allocator,
-            &command,
-            &device,
-            &mesh,
-            material_buffer.default_material(),
-        )
-        .change_context(VulkanBackendError::DrawOperation)?;
+        let draw_inputs = meshes
+            .iter()
+            .enumerate()
+            .map(|(index, mesh)| {
+                material_buffer
+                    .material_index(index)
+                    .map(|material| draw::DrawInput::new(mesh, material))
+                    .ok_or(VulkanBackendError::MaterialIndexUnavailable { index })
+            })
+            .collect::<core::result::Result<Vec<_>, _>>()?;
+        let draw_list = draw::GpuDrawList::new(&allocator, &command, &device, &draw_inputs)
+            .change_context(VulkanBackendError::DrawOperation)?;
 
         let depth_attachment =
             depth::DepthAttachment::new(&allocator, &device, surface_config.extent)
@@ -265,28 +284,32 @@ impl VulkanBackend {
         let shaders =
             shader::VulkanShaderManager::new(device.logical().clone(), shader_compiler.clone());
 
-        let start = Instant::now();
+        let compiled_main_shader = {
+            let timer = Instant::now();
 
-        let compiled_main_shader = shader_compiler
-            .compile(
-                "main",
-                [
-                    engine_shader::ShaderEntrypoint::new(
-                        "fragMain",
-                        engine_shader::ShaderStage::Fragment,
-                    ),
-                    engine_shader::ShaderEntrypoint::new(
-                        "vertMain",
-                        engine_shader::ShaderStage::Vertex,
-                    ),
-                ],
-            )
-            .change_context(VulkanBackendError::ShaderCompilation)?;
+            let s = shader_compiler
+                .compile(
+                    "main",
+                    [
+                        engine_shader::ShaderEntrypoint::new(
+                            "fragMain",
+                            engine_shader::ShaderStage::Fragment,
+                        ),
+                        engine_shader::ShaderEntrypoint::new(
+                            "vertMain",
+                            engine_shader::ShaderStage::Vertex,
+                        ),
+                    ],
+                )
+                .change_context(VulkanBackendError::ShaderCompilation)?;
 
-        debug!(
-            "took {:.2}ms to compile the main shader",
-            start.elapsed().as_secs_f64() * 1000.0
-        );
+            debug!(
+                "took {:.2}ms to compile the main shader",
+                timer.elapsed().as_secs_f64() * 1000.0
+            );
+
+            s
+        };
 
         let vk_main_shader = shaders
             .create_shader(&compiled_main_shader)
@@ -308,7 +331,7 @@ impl VulkanBackend {
             .with_depth_write(true)
             .with_color_attachment_format(surface_config.surface_format.format)
             .with_depth_attachment_format(depth::DEPTH_FORMAT)
-            .build(&device, "gpu-driven-quad", &pipeline_layout)
+            .build(&device, "gpu-driven-multidraw", &pipeline_layout)
             .change_context(VulkanBackendError::PipelineOperation)?;
 
         let frame_sync =
@@ -324,7 +347,7 @@ impl VulkanBackend {
             material_table: material_buffer,
             texture_heap,
             scene_buffer,
-            mesh,
+            meshes,
             command,
             allocator,
             swapchain,
@@ -723,4 +746,20 @@ impl VulkanBackend {
                 .cmd_pipeline_barrier2(command_buffer, &dependency_info);
         }
     }
+}
+
+fn procedural_meshes() -> [MeshData; 3] {
+    [
+        MeshData::quad([-0.55, -0.05, 0.2], [0.55, 0.55], [1.0; 4]),
+        MeshData::quad([0.0, 0.15, 0.4], [0.65, 0.65], [1.0; 4]),
+        MeshData::quad([0.55, -0.05, 0.6], [0.55, 0.55], [1.0; 4]),
+    ]
+}
+
+fn procedural_materials() -> [MaterialData; 3] {
+    [
+        MaterialData::tinted([1.0, 0.55, 0.55, 1.0]).with_label("warm checker"),
+        MaterialData::tinted([0.55, 1.0, 0.65, 1.0]).with_label("green checker"),
+        MaterialData::tinted([0.55, 0.7, 1.0, 1.0]).with_label("blue checker"),
+    ]
 }

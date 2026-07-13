@@ -1,4 +1,5 @@
 use ash::vk;
+use engine_renderer_api::MeshData;
 use thiserror::Error;
 
 use crate::renderer::backend::{
@@ -7,31 +8,6 @@ use crate::renderer::backend::{
     command::VulkanCommand,
     device::VulkanDevice,
 };
-
-const QUAD_VERTICES: [Vertex; 4] = [
-    Vertex {
-        position: [-0.5, -0.5, 0.0, 1.0],
-        color: [1.0, 1.0, 1.0, 1.0],
-        uv: [0.0, 1.0, 0.0, 0.0],
-    },
-    Vertex {
-        position: [0.5, -0.5, 0.0, 1.0],
-        color: [1.0, 1.0, 1.0, 1.0],
-        uv: [1.0, 1.0, 0.0, 0.0],
-    },
-    Vertex {
-        position: [0.5, 0.5, 0.0, 1.0],
-        color: [1.0, 1.0, 1.0, 1.0],
-        uv: [1.0, 0.0, 0.0, 0.0],
-    },
-    Vertex {
-        position: [-0.5, 0.5, 0.0, 1.0],
-        color: [1.0, 1.0, 1.0, 1.0],
-        uv: [0.0, 0.0, 0.0, 0.0],
-    },
-];
-
-const QUAD_INDICES: [u32; 6] = [0, 1, 2, 2, 3, 0];
 
 #[derive(Debug, Error)]
 pub(super) enum VulkanMeshError {
@@ -45,15 +21,7 @@ pub(super) enum VulkanMeshError {
     NullDeviceAddress { buffer: &'static str },
 }
 
-#[repr(C, align(16))]
-#[derive(Clone, Copy, Debug)]
-struct Vertex {
-    position: [f32; 4],
-    color: [f32; 4],
-    uv: [f32; 4],
-}
-
-pub(super) struct GpuQuadMesh {
+pub(super) struct GpuMesh {
     vertices: VulkanBuffer,
     indices: VulkanBuffer,
     vertex_address: vk::DeviceAddress,
@@ -61,9 +29,9 @@ pub(super) struct GpuQuadMesh {
     index_count: u32,
 }
 
-impl std::fmt::Debug for GpuQuadMesh {
+impl std::fmt::Debug for GpuMesh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GpuQuadMesh")
+        f.debug_struct("GpuMesh")
             .field("vertices", &self.vertices)
             .field("indices", &self.indices)
             .field("vertex_address", &self.vertex_address)
@@ -73,22 +41,23 @@ impl std::fmt::Debug for GpuQuadMesh {
     }
 }
 
-impl GpuQuadMesh {
-    pub(super) fn new(
+impl GpuMesh {
+    pub(super) fn from_data(
         allocator: &VulkanAllocator,
         command: &VulkanCommand,
         device: &VulkanDevice,
+        data: &MeshData,
     ) -> core::result::Result<Self, VulkanMeshError> {
-        let index_count = u32::try_from(QUAD_INDICES.len())
-            .map_err(|_| VulkanMeshError::IndexCountTooLarge { count: QUAD_INDICES.len() })?;
+        let index_count = u32::try_from(data.indices().len())
+            .map_err(|_| VulkanMeshError::IndexCountTooLarge { count: data.indices().len() })?;
 
         let vertices = VulkanBuffer::from_staged_bytes(
             device.logical(),
             allocator.handle(),
             command,
             device.graphics_queue(),
-            c"quad vertex buffer",
-            as_bytes(&QUAD_VERTICES),
+            c"mesh vertex buffer",
+            as_bytes(data.vertices()),
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
         )?;
 
@@ -97,8 +66,8 @@ impl GpuQuadMesh {
             allocator.handle(),
             command,
             device.graphics_queue(),
-            c"quad index buffer",
-            as_bytes(&QUAD_INDICES),
+            c"mesh index buffer",
+            as_bytes(data.indices()),
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
         )?;
 

@@ -7,7 +7,7 @@ use crate::renderer::backend::{
     command::VulkanCommand,
     device::VulkanDevice,
     material::MaterialIndex,
-    mesh::GpuQuadMesh,
+    mesh::GpuMesh,
 };
 
 pub(super) const DRAW_PUSH_CONSTANT_SIZE: u32 = 24;
@@ -20,6 +20,23 @@ pub(super) enum VulkanDrawError {
 
     #[error("draw buffer device address is null")]
     NullDeviceAddress,
+
+    #[error("draw list must contain at least one draw item")]
+    EmptyDraws,
+
+    #[error("draw count {count} does not fit u32")]
+    DrawCountTooLarge { count: usize },
+}
+
+pub(super) struct DrawInput<'a> {
+    mesh: &'a GpuMesh,
+    material: MaterialIndex,
+}
+
+impl<'a> DrawInput<'a> {
+    pub(super) fn new(mesh: &'a GpuMesh, material: MaterialIndex) -> Self {
+        Self { mesh, material }
+    }
 }
 
 #[repr(C, align(16))]
@@ -32,7 +49,7 @@ struct DrawItem {
 }
 
 impl DrawItem {
-    fn new(mesh: &GpuQuadMesh, material: MaterialIndex) -> Self {
+    fn new(mesh: &GpuMesh, material: MaterialIndex) -> Self {
         Self {
             vertices: mesh.vertex_address(),
             indices: mesh.index_address(),
@@ -82,20 +99,31 @@ impl std::fmt::Debug for GpuDrawList {
 }
 
 impl GpuDrawList {
-    pub(super) fn for_quad(
+    pub(super) fn new(
         allocator: &VulkanAllocator,
         command: &VulkanCommand,
         device: &VulkanDevice,
-        mesh: &GpuQuadMesh,
-        material: MaterialIndex,
+        draws: &[DrawInput<'_>],
     ) -> core::result::Result<Self, VulkanDrawError> {
-        let draw_items = [DrawItem::new(mesh, material)];
-        let indirect_commands = [vk::DrawIndirectCommand {
-            vertex_count: mesh.index_count(),
-            instance_count: 1,
-            first_vertex: 0,
-            first_instance: 0,
-        }];
+        if draws.is_empty() {
+            return Err(VulkanDrawError::EmptyDraws);
+        }
+
+        let draw_count = u32::try_from(draws.len())
+            .map_err(|_| VulkanDrawError::DrawCountTooLarge { count: draws.len() })?;
+        let draw_items = draws
+            .iter()
+            .map(|draw| DrawItem::new(draw.mesh, draw.material))
+            .collect::<Vec<_>>();
+        let indirect_commands = draws
+            .iter()
+            .map(|draw| vk::DrawIndirectCommand {
+                vertex_count: draw.mesh.index_count(),
+                instance_count: 1,
+                first_vertex: 0,
+                first_instance: 0,
+            })
+            .collect::<Vec<_>>();
 
         let draws = VulkanBuffer::from_staged_bytes(
             device.logical(),
@@ -121,7 +149,7 @@ impl GpuDrawList {
             return Err(VulkanDrawError::NullDeviceAddress);
         }
 
-        Ok(Self { draws, indirect, draw_address, draw_count: 1 })
+        Ok(Self { draws, indirect, draw_address, draw_count })
     }
 
     pub(super) fn push_constants(

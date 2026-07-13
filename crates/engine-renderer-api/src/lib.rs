@@ -3,10 +3,12 @@
 
 #![forbid(unsafe_code)]
 
+mod asset;
 mod texture;
 
 use std::{error::Error, fmt::Debug};
 
+pub use asset::{MaterialData, MeshData, MeshDataError, MeshVertex};
 pub use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };

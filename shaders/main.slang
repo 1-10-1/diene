@@ -11,6 +11,7 @@ struct Scene {
 struct Material {
     uint albedoTextureIndex;
     uint3 _padding;
+    float4 tint;
 };
 
 typedef vk::BufferPointer<Vertex, 16> VertexBuffer;
@@ -77,5 +78,5 @@ float4 fragMain(VertexOutput inVert) : SV_Target
         inVert.uv
     );
 
-    return albedo * inVert.color;
+    return albedo * inVert.color * material.tint;
 }
