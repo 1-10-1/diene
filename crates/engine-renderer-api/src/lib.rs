@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 mod asset;
+mod scene;
 mod texture;
 
 use std::{error::Error, fmt::Debug};
@@ -12,6 +13,7 @@ pub use asset::{MaterialData, MeshData, MeshDataError, MeshVertex};
 pub use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, WindowHandle,
 };
+pub use scene::{RenderCamera, RenderObject, RenderScene, RenderSceneError, RenderTransform};
 pub use texture::{ImageData, TextureData, TextureDataError, TextureExtent};
 
 /// Drawable size in physical pixels.

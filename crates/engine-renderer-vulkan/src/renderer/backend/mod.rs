@@ -18,12 +18,13 @@ mod shader;
 mod surface;
 mod swapchain;
 mod texture;
+mod transform;
 
 use std::{rc::Rc, time::Instant};
 
 use ash::vk::{self, Extent2D};
 use common::logging::macros::*;
-use engine_renderer_api::{MaterialData, MeshData, RenderExtent, RenderWindow};
+use engine_renderer_api::{RenderCamera, RenderExtent, RenderScene, RenderWindow};
 use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
@@ -90,6 +91,20 @@ pub(super) enum VulkanBackendError {
         index: usize,
     },
 
+    /// Mesh index for a generated draw item was not available.
+    #[error("mesh index {index} was not available")]
+    MeshIndexUnavailable {
+        /// Mesh index requested by the draw item.
+        index: usize,
+    },
+
+    /// Transform index for a generated draw item was not available.
+    #[error("transform index {index} was not available")]
+    TransformIndexUnavailable {
+        /// Transform index requested by the draw item.
+        index: usize,
+    },
+
     /// Vulkan mesh operation failed.
     #[error("mesh operation failed")]
     MeshOperation,
@@ -101,6 +116,10 @@ pub(super) enum VulkanBackendError {
     /// Vulkan material-buffer operation failed.
     #[error("material-buffer operation failed")]
     MaterialBufferOperation,
+
+    /// Vulkan transform-buffer operation failed.
+    #[error("transform-buffer operation failed")]
+    TransformBufferOperation,
 
     /// Vulkan texture operation failed.
     #[error("texture operation failed")]
@@ -145,16 +164,17 @@ pub(super) struct VulkanBackend {
     graphics_pipeline: pipeline::VulkanGraphicsPipeline,
     pipeline_layout: pipeline::VulkanPipelineLayout,
     depth_attachment: depth::DepthAttachment,
-    draw_list: draw::GpuDrawList,
-    material_table: material::MaterialTable,
+    draw_list: Option<draw::GpuDrawList>,
+    transform_table: Option<transform::TransformTable>,
+    material_table: Option<material::MaterialTable>,
     texture_heap: texture::BindlessTextureHeap,
     scene_buffer: scene::SceneBuffer,
     meshes: Vec<mesh::GpuMesh>,
+    camera: RenderCamera,
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
     swapchain: swapchain::VulkanSwapchain,
     surface_config: surface::SurfaceConfig,
-    started_at: Instant,
     rendering_paused: bool,
     vsync: bool,
     device: device::VulkanDevice,
@@ -178,6 +198,7 @@ impl VulkanBackend {
     pub(super) fn new(
         rw: &dyn RenderWindow,
         vsync: bool,
+        scene: &RenderScene,
     ) -> error_stack::Result<Self, VulkanBackendError> {
         let display_handle = rw
             .display_handle()
@@ -185,6 +206,7 @@ impl VulkanBackend {
                 Report::new(VulkanBackendError::DisplayHandle).attach_printable(error.to_string())
             })?
             .as_raw();
+
         let window_handle = rw
             .window_handle()
             .map_err(|error| {
@@ -230,43 +252,63 @@ impl VulkanBackend {
             command::VulkanCommand::new(device.logical().clone(), device.queue_families())
                 .change_context(VulkanBackendError::CommandOperation)?;
 
-        let mesh_data = procedural_meshes();
-        let mut meshes = Vec::with_capacity(mesh_data.len());
-        for data in &mesh_data {
+        let mut meshes = Vec::with_capacity(scene.meshes().len());
+        for data in scene.meshes() {
             meshes.push(
                 mesh::GpuMesh::from_data(&allocator, &command, &device, data)
                     .change_context(VulkanBackendError::MeshOperation)?,
             );
         }
 
-        let scene_buffer = scene::SceneBuffer::new(&allocator, &device)
-            .change_context(VulkanBackendError::SceneBufferOperation)?;
+        let camera = scene.camera();
+        let scene_buffer =
+            scene::SceneBuffer::new(&allocator, &device, surface_config.extent, camera)
+                .change_context(VulkanBackendError::SceneBufferOperation)?;
 
         let mut texture_heap = texture::BindlessTextureHeap::new(&allocator, &command, &device)
             .change_context(VulkanBackendError::TextureOperation)?;
 
-        let materials = procedural_materials();
-        let material_buffer = material::MaterialTable::new(
-            &allocator,
-            &command,
-            &device,
-            &mut texture_heap,
-            &materials,
-        )
-        .change_context(VulkanBackendError::MaterialBufferOperation)?;
+        let (material_table, transform_table, draw_list) = if scene.objects().is_empty() {
+            (None, None, None)
+        } else {
+            let material_table = material::MaterialTable::new(
+                &allocator,
+                &command,
+                &device,
+                &mut texture_heap,
+                scene.materials(),
+            )
+            .change_context(VulkanBackendError::MaterialBufferOperation)?;
 
-        let draw_inputs = meshes
-            .iter()
-            .enumerate()
-            .map(|(index, mesh)| {
-                material_buffer
-                    .material_index(index)
-                    .map(|material| draw::DrawInput::new(mesh, material))
-                    .ok_or(VulkanBackendError::MaterialIndexUnavailable { index })
-            })
-            .collect::<core::result::Result<Vec<_>, _>>()?;
-        let draw_list = draw::GpuDrawList::new(&allocator, &command, &device, &draw_inputs)
-            .change_context(VulkanBackendError::DrawOperation)?;
+            let transforms =
+                scene.objects().iter().map(|object| object.transform()).collect::<Vec<_>>();
+            let transform_table =
+                transform::TransformTable::new(&allocator, &command, &device, &transforms)
+                    .change_context(VulkanBackendError::TransformBufferOperation)?;
+
+            let draw_inputs = scene
+                .objects()
+                .iter()
+                .enumerate()
+                .map(|(index, object)| {
+                    let mesh = meshes
+                        .get(object.mesh_index())
+                        .ok_or(VulkanBackendError::MeshIndexUnavailable { index })?;
+                    let material = material_table
+                        .material_index(object.material_index())
+                        .ok_or(VulkanBackendError::MaterialIndexUnavailable { index })?;
+                    let transform = transform_table
+                        .transform_index(index)
+                        .ok_or(VulkanBackendError::TransformIndexUnavailable { index })?;
+
+                    Ok(draw::DrawInput::new(mesh, material, transform))
+                })
+                .collect::<core::result::Result<Vec<_>, VulkanBackendError>>()?;
+            let draw_list = draw::GpuDrawList::new(&allocator, &command, &device, &draw_inputs)
+                .change_context(VulkanBackendError::DrawOperation)?;
+
+            (Some(material_table), Some(transform_table), Some(draw_list))
+        };
 
         let depth_attachment =
             depth::DepthAttachment::new(&allocator, &device, surface_config.extent)
@@ -344,15 +386,16 @@ impl VulkanBackend {
             pipeline_layout,
             depth_attachment,
             draw_list,
-            material_table: material_buffer,
+            transform_table,
+            material_table,
             texture_heap,
             scene_buffer,
             meshes,
+            camera,
             command,
             allocator,
             swapchain,
             surface_config,
-            started_at: Instant::now(),
             rendering_paused: false,
             vsync,
             device,
@@ -418,7 +461,7 @@ impl VulkanBackend {
         });
 
         self.scene_buffer
-            .update(self.started_at.elapsed())
+            .update(self.surface_config.extent, self.camera)
             .map_err(|_| VulkanBackendError::SceneBufferOperation)?;
 
         self.record_render_commands(command_buffer, image_index)?;
@@ -648,37 +691,42 @@ impl VulkanBackend {
 
             logical.cmd_set_scissor(command_buffer, 0, &scissors);
 
-            let descriptor_sets = [self.texture_heap.descriptor_set()];
+            if let (Some(draw_list), Some(material_table), Some(transform_table)) =
+                (&self.draw_list, &self.material_table, &self.transform_table)
+            {
+                let descriptor_sets = [self.texture_heap.descriptor_set()];
 
-            logical.cmd_bind_descriptor_sets(
-                command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                self.pipeline_layout.get(),
-                0,
-                &descriptor_sets,
-                &[],
-            );
+                logical.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline_layout.get(),
+                    0,
+                    &descriptor_sets,
+                    &[],
+                );
 
-            let push_constants = self.draw_list.push_constants(
-                self.material_table.device_address(),
-                self.scene_buffer.device_address(),
-            );
+                let push_constants = draw_list.push_constants(
+                    material_table.device_address(),
+                    transform_table.device_address(),
+                    self.scene_buffer.device_address(),
+                );
 
-            logical.cmd_push_constants(
-                command_buffer,
-                self.pipeline_layout.get(),
-                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                0,
-                push_constants.as_bytes(),
-            );
+                logical.cmd_push_constants(
+                    command_buffer,
+                    self.pipeline_layout.get(),
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    push_constants.as_bytes(),
+                );
 
-            logical.cmd_draw_indirect(
-                command_buffer,
-                self.draw_list.indirect_buffer(),
-                0,
-                self.draw_list.draw_count(),
-                self.draw_list.indirect_stride(),
-            );
+                logical.cmd_draw_indirect(
+                    command_buffer,
+                    draw_list.indirect_buffer(),
+                    0,
+                    draw_list.draw_count(),
+                    draw_list.indirect_stride(),
+                );
+            }
 
             logical.cmd_end_rendering(command_buffer);
         }
@@ -746,20 +794,4 @@ impl VulkanBackend {
                 .cmd_pipeline_barrier2(command_buffer, &dependency_info);
         }
     }
-}
-
-fn procedural_meshes() -> [MeshData; 3] {
-    [
-        MeshData::quad([-0.55, -0.05, 0.2], [0.55, 0.55], [1.0; 4]),
-        MeshData::quad([0.0, 0.15, 0.4], [0.65, 0.65], [1.0; 4]),
-        MeshData::quad([0.55, -0.05, 0.6], [0.55, 0.55], [1.0; 4]),
-    ]
-}
-
-fn procedural_materials() -> [MaterialData; 3] {
-    [
-        MaterialData::tinted([1.0, 0.55, 0.55, 1.0]).with_label("warm checker"),
-        MaterialData::tinted([0.55, 1.0, 0.65, 1.0]).with_label("green checker"),
-        MaterialData::tinted([0.55, 0.7, 1.0, 1.0]).with_label("blue checker"),
-    ]
 }

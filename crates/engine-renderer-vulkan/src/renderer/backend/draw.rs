@@ -8,9 +8,10 @@ use crate::renderer::backend::{
     device::VulkanDevice,
     material::MaterialIndex,
     mesh::GpuMesh,
+    transform::TransformIndex,
 };
 
-pub(super) const DRAW_PUSH_CONSTANT_SIZE: u32 = 24;
+pub(super) const DRAW_PUSH_CONSTANT_SIZE: u32 = 32;
 const DRAW_INDIRECT_COMMAND_SIZE: u32 = 16;
 
 #[derive(Debug, Error)]
@@ -31,11 +32,16 @@ pub(super) enum VulkanDrawError {
 pub(super) struct DrawInput<'a> {
     mesh: &'a GpuMesh,
     material: MaterialIndex,
+    transform: TransformIndex,
 }
 
 impl<'a> DrawInput<'a> {
-    pub(super) fn new(mesh: &'a GpuMesh, material: MaterialIndex) -> Self {
-        Self { mesh, material }
+    pub(super) fn new(
+        mesh: &'a GpuMesh,
+        material: MaterialIndex,
+        transform: TransformIndex,
+    ) -> Self {
+        Self { mesh, material, transform }
     }
 }
 
@@ -45,16 +51,18 @@ struct DrawItem {
     vertices: vk::DeviceAddress,
     indices: vk::DeviceAddress,
     material_index: u32,
-    _padding: [u32; 3],
+    transform_index: u32,
+    _padding: [u32; 2],
 }
 
 impl DrawItem {
-    fn new(mesh: &GpuMesh, material: MaterialIndex) -> Self {
+    fn new(mesh: &GpuMesh, material: MaterialIndex, transform: TransformIndex) -> Self {
         Self {
             vertices: mesh.vertex_address(),
             indices: mesh.index_address(),
             material_index: material.index(),
-            _padding: [0; 3],
+            transform_index: transform.index(),
+            _padding: [0; 2],
         }
     }
 }
@@ -64,6 +72,7 @@ impl DrawItem {
 pub(super) struct DrawPushConstants {
     draws: vk::DeviceAddress,
     materials: vk::DeviceAddress,
+    transforms: vk::DeviceAddress,
     scene: vk::DeviceAddress,
 }
 
@@ -113,7 +122,7 @@ impl GpuDrawList {
             .map_err(|_| VulkanDrawError::DrawCountTooLarge { count: draws.len() })?;
         let draw_items = draws
             .iter()
-            .map(|draw| DrawItem::new(draw.mesh, draw.material))
+            .map(|draw| DrawItem::new(draw.mesh, draw.material, draw.transform))
             .collect::<Vec<_>>();
         let indirect_commands = draws
             .iter()
@@ -155,9 +164,10 @@ impl GpuDrawList {
     pub(super) fn push_constants(
         &self,
         materials: vk::DeviceAddress,
+        transforms: vk::DeviceAddress,
         scene: vk::DeviceAddress,
     ) -> DrawPushConstants {
-        DrawPushConstants { draws: self.draw_address, materials, scene }
+        DrawPushConstants { draws: self.draw_address, materials, transforms, scene }
     }
 
     pub(super) fn indirect_buffer(&self) -> vk::Buffer {

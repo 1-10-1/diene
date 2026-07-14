@@ -7,7 +7,8 @@ use engine_core::app::{
     ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError,
 };
 use engine_renderer_api::{
-    BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory,
+    BoxedRenderer, RenderExtent, RenderScene, RenderWindow, Renderer, RendererError,
+    RendererFactory,
 };
 use engine_renderer_vulkan::VulkanRendererBuilder;
 use error_stack::ResultExt;
@@ -75,6 +76,7 @@ pub struct Application {
 pub struct ApplicationBuilder {
     name: Option<String>,
     renderer_backend: RendererBackend,
+    scene: RenderScene,
     vsync: bool,
 }
 
@@ -100,12 +102,22 @@ impl ApplicationBuilder {
         self
     }
 
+    /// Sets the initial renderer scene.
+    #[must_use]
+    pub fn with_scene(mut self, scene: RenderScene) -> Self {
+        self.scene = scene;
+        self
+    }
+
     /// Builds the application.
     pub fn build(self) -> Result<Application, ApplicationError> {
         debug!("building runtime application with backend {:?}", self.renderer_backend);
 
-        let selector =
-            RendererBackendSelector { renderer_backend: self.renderer_backend, vsync: self.vsync };
+        let selector = RendererBackendSelector {
+            renderer_backend: self.renderer_backend,
+            scene: self.scene,
+            vsync: self.vsync,
+        };
 
         let mut builder = ApplicationHost::builder(selector);
 
@@ -134,9 +146,10 @@ impl Application {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct RendererBackendSelector {
     renderer_backend: RendererBackend,
+    scene: RenderScene,
     vsync: bool,
 }
 
@@ -164,7 +177,7 @@ impl RendererFactory for RendererBackendSelector {
         );
 
         match self.renderer_backend {
-            RendererBackend::Vulkan => create_vulkan_renderer(window, self.vsync),
+            RendererBackend::Vulkan => create_vulkan_renderer(window, self.vsync, &self.scene),
             RendererBackend::Auto => unreachable!(),
         }
     }
@@ -203,9 +216,11 @@ where
 fn create_vulkan_renderer(
     window: &dyn RenderWindow,
     vsync: bool,
+    scene: &RenderScene,
 ) -> error_stack::Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
     let renderer = VulkanRendererBuilder::default()
         .with_vsync(vsync)
+        .with_scene(scene.clone())
         .build(window)
         .change_context(RendererBackendError::Vulkan)?;
 

@@ -37,7 +37,9 @@ pub mod prelude {
 pub mod renderer {
     pub use engine_renderer_api::{
         BoxedRenderer, BoxedRendererFactory, DisplayHandle, HandleError, HasDisplayHandle,
-        HasWindowHandle, RenderExtent, RenderWindow, Renderer, RendererError, RendererFactory,
+        HasWindowHandle, MaterialData, MeshData, MeshDataError, MeshVertex, RenderCamera,
+        RenderExtent, RenderObject, RenderScene, RenderSceneError, RenderTransform, RenderWindow,
+        Renderer, RendererError, RendererFactory, TextureData, TextureDataError, TextureExtent,
         WindowHandle,
     };
 }

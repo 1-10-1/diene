@@ -1494,6 +1494,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "diene-common",
+ "diene-engine-renderer-api",
  "diene-engine-runtime",
 ]
 

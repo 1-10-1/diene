@@ -1,6 +1,8 @@
 mod backend;
 
-use engine_renderer_api::{BoxedRenderer, RenderExtent, RenderWindow, Renderer, RendererFactory};
+use engine_renderer_api::{
+    BoxedRenderer, RenderExtent, RenderScene, RenderWindow, Renderer, RendererFactory,
+};
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
 
@@ -35,15 +37,16 @@ impl std::fmt::Debug for VulkanRenderer {
 }
 
 /// Configures a [`VulkanRenderer`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct VulkanRendererBuilder {
+    scene: RenderScene,
     vsync: bool,
 }
 
 impl VulkanRendererBuilder {
     /// Builds the renderer for a native presentation window.
     pub fn build(
-        self,
+        &self,
         window: &dyn RenderWindow,
     ) -> error_stack::Result<VulkanRenderer, VulkanRendererError> {
         let extent = window.size();
@@ -52,16 +55,23 @@ impl VulkanRendererBuilder {
             return Err(Report::new(VulkanRendererError::InvalidWindowSize(extent)));
         }
 
-        let backend =
-            VulkanBackend::new(window, self.vsync).change_context(VulkanRendererError::Backend)?;
+        let backend = VulkanBackend::new(window, self.vsync, &self.scene)
+            .change_context(VulkanRendererError::Backend)?;
 
         Ok(VulkanRenderer::new(self.vsync, backend))
     }
 
     /// Enables or disables vertical synchronization.
     #[must_use]
-    pub const fn with_vsync(mut self, on: bool) -> Self {
+    pub fn with_vsync(mut self, on: bool) -> Self {
         self.vsync = on;
+        self
+    }
+
+    /// Sets the initial renderer scene.
+    #[must_use]
+    pub fn with_scene(mut self, scene: RenderScene) -> Self {
+        self.scene = scene;
         self
     }
 }
@@ -84,7 +94,7 @@ impl RendererFactory for VulkanRendererBuilder {
         &mut self,
         window: &dyn RenderWindow,
     ) -> error_stack::Result<BoxedRenderer<Self::Error>, Self::Error> {
-        Ok(Box::new((*self).build(window)?))
+        Ok(Box::new(self.build(window)?))
     }
 }
 

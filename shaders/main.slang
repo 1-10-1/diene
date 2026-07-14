@@ -5,7 +5,11 @@ struct Vertex {
 };
 
 struct Scene {
-    float4 transformRows[4];
+    float4 viewProjectionRows[4];
+};
+
+struct Transform {
+    float4 modelRows[4];
 };
 
 struct Material {
@@ -18,12 +22,14 @@ typedef vk::BufferPointer<Vertex, 16> VertexBuffer;
 typedef vk::BufferPointer<uint, 4> IndexBuffer;
 typedef vk::BufferPointer<Scene, 16> SceneBuffer;
 typedef vk::BufferPointer<Material, 16> MaterialBuffer;
+typedef vk::BufferPointer<Transform, 16> TransformBuffer;
 
 struct DrawItem {
     VertexBuffer vertices;
     IndexBuffer indices;
     uint materialIndex;
-    uint3 _padding;
+    uint transformIndex;
+    uint2 _padding;
 };
 
 typedef vk::BufferPointer<DrawItem, 16> DrawBuffer;
@@ -31,6 +37,7 @@ typedef vk::BufferPointer<DrawItem, 16> DrawBuffer;
 struct PushConstants {
     DrawBuffer draws;
     MaterialBuffer materials;
+    TransformBuffer transforms;
     SceneBuffer scene;
 };
 
@@ -51,15 +58,23 @@ VertexOutput vertMain(uint vertexId : SV_VertexID, uint drawId : SV_DrawIndex) {
     DrawItem draw = pushConstants.draws.getPtr()[drawId];
     uint index = draw.indices.getPtr()[vertexId];
     Vertex vertex = draw.vertices.getPtr()[index];
+    Transform transform = pushConstants.transforms.getPtr()[draw.transformIndex];
     Scene scene = pushConstants.scene.Get();
 
     VertexOutput output;
 
+    float4 worldPosition = float4(
+        dot(transform.modelRows[0], vertex.position),
+        dot(transform.modelRows[1], vertex.position),
+        dot(transform.modelRows[2], vertex.position),
+        dot(transform.modelRows[3], vertex.position)
+    );
+
     output.sv_position = float4(
-        dot(scene.transformRows[0], vertex.position),
-        dot(scene.transformRows[1], vertex.position),
-        dot(scene.transformRows[2], vertex.position),
-        dot(scene.transformRows[3], vertex.position)
+        dot(scene.viewProjectionRows[0], worldPosition),
+        dot(scene.viewProjectionRows[1], worldPosition),
+        dot(scene.viewProjectionRows[2], worldPosition),
+        dot(scene.viewProjectionRows[3], worldPosition)
     );
 
     output.color = vertex.color;
