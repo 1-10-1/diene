@@ -122,6 +122,11 @@ impl ImageData {
     /// Bytes per pixel for the image data format.
     pub const RGBA8_BYTES_PER_PIXEL: usize = 4;
 
+    /// Creates a one-pixel RGBA8 image with the supplied color.
+    pub fn solid_rgba8(color: [u8; 4]) -> Self {
+        Self { extent: TextureExtent::new(1, 1), pixels: color.into() }
+    }
+
     /// Creates the default magenta/black checkerboard image.
     pub fn checkerboard() -> Self {
         let extent = TextureExtent::new(16, 16);
@@ -225,6 +230,12 @@ impl TextureData {
     /// Bytes per pixel for the texture data format.
     pub const RGBA8_BYTES_PER_PIXEL: usize = ImageData::RGBA8_BYTES_PER_PIXEL;
 
+    /// Creates a labeled one-pixel RGBA8 texture with the supplied
+    /// color.
+    pub fn solid_rgba8(label: impl Into<String>, color: [u8; 4]) -> Self {
+        Self { label: Some(label.into()), image: ImageData::solid_rgba8(color) }
+    }
+
     /// Creates unlabeled RGBA8 texture data from raw bytes.
     pub fn from_rgba8(
         extent: TextureExtent,
@@ -326,6 +337,15 @@ mod tests {
         assert_eq!(texture.label(), Some("default-checkerboard"));
         assert_eq!(texture.extent(), TextureExtent::new(16, 16));
         assert_eq!(texture.byte_len(), 16 * 16 * TextureData::RGBA8_BYTES_PER_PIXEL);
+    }
+
+    #[test]
+    fn solid_texture_is_one_pixel_color() {
+        let texture = TextureData::solid_rgba8("white", [255, 255, 255, 255]);
+
+        assert_eq!(texture.label(), Some("white"));
+        assert_eq!(texture.extent(), TextureExtent::new(1, 1));
+        assert_eq!(texture.pixels(), &[255, 255, 255, 255]);
     }
 
     #[test]

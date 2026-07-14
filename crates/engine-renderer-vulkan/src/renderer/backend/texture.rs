@@ -198,7 +198,12 @@ impl BindlessTextureHeap {
             default_handle: TextureHandle(0),
         };
 
-        heap.default_handle = heap.insert(allocator, command, device, &TextureData::default())?;
+        heap.default_handle = heap.insert(
+            allocator,
+            command,
+            device,
+            &TextureData::solid_rgba8("default-white-albedo", [255, 255, 255, 255]),
+        )?;
 
         Ok(heap)
     }
