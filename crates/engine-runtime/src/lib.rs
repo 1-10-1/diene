@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 
-use common::logging::macros::{debug, info};
+use common::logging::macros::*;
 use engine_core::app::{
     ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError,
 };
@@ -218,11 +218,11 @@ fn create_vulkan_renderer(
     vsync: bool,
     scene: &RenderScene,
 ) -> error_stack::Result<BoxedRenderer<RendererBackendError>, RendererBackendError> {
-    let renderer = VulkanRendererBuilder::default()
-        .with_vsync(vsync)
-        .with_scene(scene.clone())
-        .build(window)
-        .change_context(RendererBackendError::Vulkan)?;
-
-    Ok(Box::new(RendererErrorAdapter::new(renderer)))
+    Ok(Box::new(RendererErrorAdapter::new(
+        VulkanRendererBuilder::default()
+            .with_vsync(vsync)
+            .with_scene(scene.clone())
+            .build(window)
+            .change_context(RendererBackendError::Vulkan)?,
+    )))
 }

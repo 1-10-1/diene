@@ -29,6 +29,12 @@ use engine_shader::{ShaderCompiler, ShaderCompilerOptions};
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
 
+/// Number of frames the CPU may record and submit concurrently before
+/// it must wait on the GPU. Each frame in flight needs its own
+/// command buffer and synchronization objects (see
+/// [`frame::VulkanFrameSync`]).
+pub(super) const FRAMES_IN_FLIGHT: usize = 3;
+
 /// Errors returned by Vulkan backend operations.
 #[derive(Debug, Error)]
 pub(super) enum VulkanBackendError {
@@ -79,6 +85,15 @@ pub(super) enum VulkanBackendError {
     /// Vulkan depth attachment operation failed.
     #[error("depth attachment operation failed")]
     DepthOperation,
+
+    /// Vulkan MSAA color attachment operation failed.
+    #[error("MSAA color attachment operation failed")]
+    MsaaColorOperation,
+
+    /// The MSAA color attachment image was created without an image
+    /// view.
+    #[error("MSAA color attachment has no image view")]
+    MsaaColorViewMissing,
 
     /// Vulkan draw-list operation failed.
     #[error("draw-list operation failed")]
@@ -160,10 +175,10 @@ pub(super) enum VulkanBackendError {
 #[allow(dead_code)]
 pub(super) struct VulkanBackend {
     // NOTE: Fields are dropped in declaration order. Keep Vulkan children above their parents.
+    frame: frame::FrameResources,
     frame_sync: frame::VulkanFrameSync,
     graphics_pipeline: pipeline::VulkanGraphicsPipeline,
     pipeline_layout: pipeline::VulkanPipelineLayout,
-    depth_attachment: depth::DepthAttachment,
     draw_list: Option<draw::GpuDrawList>,
     transform_table: Option<transform::TransformTable>,
     material_table: Option<material::MaterialTable>,
@@ -173,8 +188,9 @@ pub(super) struct VulkanBackend {
     camera: RenderCamera,
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
-    swapchain: swapchain::VulkanSwapchain,
     surface_config: surface::SurfaceConfig,
+    sample_count: vk::SampleCountFlags,
+    current_frame: usize,
     rendering_paused: bool,
     vsync: bool,
     device: device::VulkanDevice,
@@ -196,18 +212,18 @@ impl Drop for VulkanBackend {
 
 impl VulkanBackend {
     pub(super) fn new(
-        rw: &dyn RenderWindow,
+        render_window: &dyn RenderWindow,
         vsync: bool,
         scene: &RenderScene,
     ) -> error_stack::Result<Self, VulkanBackendError> {
-        let display_handle = rw
+        let display_handle = render_window
             .display_handle()
             .map_err(|error| {
                 Report::new(VulkanBackendError::DisplayHandle).attach_printable(error.to_string())
             })?
             .as_raw();
 
-        let window_handle = rw
+        let window_handle = render_window
             .window_handle()
             .map_err(|error| {
                 Report::new(VulkanBackendError::WindowHandle).attach_printable(error.to_string())
@@ -230,19 +246,16 @@ impl VulkanBackend {
         let device = device::VulkanDevice::new(&instance, &surface)
             .change_context(VulkanBackendError::DeviceOperation)?;
 
-        let RenderExtent { width, height } = rw.size();
+        // let sample_count = device.get_max_usable_sample_count();
+        let sample_count = device.get_max_usable_sample_count();
+
+        debug!("selected MSAA sample count {sample_count:?}");
+
+        let RenderExtent { width, height } = render_window.size();
 
         let surface_config = surface
             .make_config(device.physical(), Extent2D { width, height }, vsync)
             .change_context(VulkanBackendError::RefreshSurface)?;
-
-        let swapchain = swapchain::VulkanSwapchain::new(
-            &instance,
-            device.logical().clone(),
-            &surface,
-            &surface_config,
-        )
-        .change_context(VulkanBackendError::SwapchainOperation)?;
 
         let allocator =
             allocator::VulkanAllocator::new(&instance, device.logical(), device.physical())
@@ -253,9 +266,10 @@ impl VulkanBackend {
                 .change_context(VulkanBackendError::CommandOperation)?;
 
         let mut meshes = Vec::with_capacity(scene.meshes().len());
+
         for data in scene.meshes() {
             meshes.push(
-                mesh::GpuMesh::from_data(&allocator, &command, &device, data)
+                mesh::GpuMesh::new(&allocator, &command, &device, data)
                     .change_context(VulkanBackendError::MeshOperation)?,
             );
         }
@@ -304,15 +318,22 @@ impl VulkanBackend {
                     Ok(draw::DrawInput::new(mesh, material, transform))
                 })
                 .collect::<core::result::Result<Vec<_>, VulkanBackendError>>()?;
+
             let draw_list = draw::GpuDrawList::new(&allocator, &command, &device, &draw_inputs)
                 .change_context(VulkanBackendError::DrawOperation)?;
 
             (Some(material_table), Some(transform_table), Some(draw_list))
         };
 
-        let depth_attachment =
-            depth::DepthAttachment::new(&allocator, &device, surface_config.extent)
-                .change_context(VulkanBackendError::DepthOperation)?;
+        let frame = frame::FrameResources::new(
+            &instance,
+            &device,
+            &allocator,
+            &surface,
+            &surface_config,
+            sample_count,
+            vk::SwapchainKHR::null(),
+        )?;
 
         let shader_compiler = Rc::new(
             ShaderCompiler::with_options(
@@ -373,18 +394,19 @@ impl VulkanBackend {
             .with_depth_write(true)
             .with_color_attachment_format(surface_config.surface_format.format)
             .with_depth_attachment_format(depth::DEPTH_FORMAT)
+            .with_sample_count(sample_count)
+            .with_sample_shading(sample_count != vk::SampleCountFlags::TYPE_1, 0.2)
             .build(&device, "gpu-driven-multidraw", &pipeline_layout)
             .change_context(VulkanBackendError::PipelineOperation)?;
 
-        let frame_sync =
-            frame::VulkanFrameSync::new(device.logical().clone(), swapchain.image_count())
-                .change_context(VulkanBackendError::FrameOperation)?;
+        let frame_sync = frame::VulkanFrameSync::new(device.logical().clone())
+            .change_context(VulkanBackendError::FrameOperation)?;
 
         Ok(Self {
+            frame,
             frame_sync,
             graphics_pipeline,
             pipeline_layout,
-            depth_attachment,
             draw_list,
             transform_table,
             material_table,
@@ -394,8 +416,9 @@ impl VulkanBackend {
             camera,
             command,
             allocator,
-            swapchain,
             surface_config,
+            sample_count,
+            current_frame: 0,
             rendering_paused: false,
             vsync,
             device,
@@ -414,10 +437,12 @@ impl VulkanBackend {
             return Ok(());
         }
 
+        let frame_index = self.current_frame;
+
         let logical_device = self.device.logical().clone();
         let logical = logical_device.handle();
-        let command_buffer = self.command.graphics_command_buffer();
-        let in_flight = self.frame_sync.in_flight();
+        let command_buffer = self.command.render_command_buffer(frame_index);
+        let in_flight = self.frame_sync.in_flight(frame_index);
         let in_flight_fences = [in_flight];
 
         // SAFETY: `in_flight` is a live fence owned by this backend.
@@ -427,10 +452,10 @@ impl VulkanBackend {
 
         // SAFETY: The swapchain and image-available semaphore are live.
         let (image_index, acquire_suboptimal) = match unsafe {
-            self.swapchain.loader().acquire_next_image(
-                self.swapchain.get(),
+            self.frame.swapchain().loader().acquire_next_image(
+                self.frame.swapchain().get(),
                 u64::MAX,
-                self.frame_sync.image_available(),
+                self.frame_sync.image_available(frame_index),
                 vk::Fence::null(),
             )
         } {
@@ -449,7 +474,7 @@ impl VulkanBackend {
         };
 
         let render_finished = self
-            .frame_sync
+            .frame
             .render_finished(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
 
@@ -464,7 +489,7 @@ impl VulkanBackend {
             .update(self.surface_config.extent, self.camera)
             .map_err(|_| VulkanBackendError::SceneBufferOperation)?;
 
-        self.record_render_commands(command_buffer, image_index)?;
+        self.record_render_commands(command_buffer, image_index, frame_index)?;
 
         // SAFETY: Reset immediately before submission so failures before this
         // point leave the fence signaled for the next frame.
@@ -473,7 +498,7 @@ impl VulkanBackend {
         });
 
         let wait_semaphore_infos = [vk::SemaphoreSubmitInfo::default()
-            .semaphore(self.frame_sync.image_available())
+            .semaphore(self.frame_sync.image_available(frame_index))
             .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
 
         let command_buffer_infos =
@@ -497,7 +522,7 @@ impl VulkanBackend {
 
         let wait_semaphores = [render_finished];
 
-        let swapchains = [self.swapchain.get()];
+        let swapchains = [self.frame.swapchain().get()];
 
         let image_indices = [image_index];
 
@@ -510,7 +535,8 @@ impl VulkanBackend {
         // for graphics and presentation, and the render-finished
         // semaphore is signaled by the submitted frame.
         let present_suboptimal = match unsafe {
-            self.swapchain
+            self.frame
+                .swapchain()
                 .loader()
                 .queue_present(self.device.graphics_queue(), &present_info)
         } {
@@ -526,6 +552,8 @@ impl VulkanBackend {
         if acquire_suboptimal || present_suboptimal {
             self.recreate_swapchain(self.surface_config.extent)?;
         }
+
+        self.current_frame = (self.current_frame + 1) % FRAMES_IN_FLIGHT;
 
         Ok(())
     }
@@ -574,24 +602,17 @@ impl VulkanBackend {
             });
         }
 
-        let swapchain = swapchain::VulkanSwapchain::new_replacing(
+        let frame = frame::FrameResources::new(
             &self.instance,
-            self.device.logical().clone(),
+            &self.device,
+            &self.allocator,
             &self.surface,
             &surface_config,
-            self.swapchain.get(),
-        )
-        .map_err(|_| VulkanBackendError::SwapchainOperation)?;
+            self.sample_count,
+            self.frame.swapchain().get(),
+        )?;
 
-        let frame_sync =
-            frame::VulkanFrameSync::new(self.device.logical().clone(), swapchain.image_count())?;
-        let depth_attachment =
-            depth::DepthAttachment::new(&self.allocator, &self.device, surface_config.extent)
-                .map_err(|_| VulkanBackendError::DepthOperation)?;
-
-        self.frame_sync = frame_sync;
-        self.swapchain = swapchain;
-        self.depth_attachment = depth_attachment;
+        self.frame = frame;
         self.surface_config = surface_config;
 
         Ok(())
@@ -601,18 +622,22 @@ impl VulkanBackend {
         &mut self,
         command_buffer: vk::CommandBuffer,
         image_index: u32,
+        frame_index: usize,
     ) -> core::result::Result<(), VulkanBackendError> {
         let image = self
-            .swapchain
+            .frame
+            .swapchain()
             .image(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
 
         let image_view = self
-            .swapchain
+            .frame
+            .swapchain()
             .image_view(image_index)
             .ok_or(VulkanBackendError::InvalidSwapchainImageIndex { image_index })?;
 
         let logical_device = self.device.logical().clone();
+
         let logical = logical_device.handle();
 
         let extent = self.surface_config.extent;
@@ -623,9 +648,9 @@ impl VulkanBackend {
             logical.begin_command_buffer(command_buffer, &vk::CommandBufferBeginInfo::default())
         });
 
-        self.depth_attachment.transition_for_render(command_buffer);
+        self.frame.depth_mut(frame_index).transition_for_render(command_buffer);
 
-        self.transition_swapchain_image(
+        self.transition_color_image(
             command_buffer,
             image,
             vk::ImageLayout::UNDEFINED,
@@ -636,19 +661,51 @@ impl VulkanBackend {
             vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
         );
 
-        let color_attachment = vk::RenderingAttachmentInfo::default()
-            .image_view(image_view)
-            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .clear_value(vk::ClearValue {
-                color: vk::ClearColorValue { float32: [0.02, 0.02, 0.03, 1.0] },
-            });
+        let clear_value = vk::ClearValue {
+            color: vk::ClearColorValue { float32: [5.0 / 255.0, 5.0 / 255.0, 5.0 / 255.0, 1.0] },
+        };
+
+        // With MSAA, rendering targets the multisampled color image and
+        // resolves into the swapchain image in the same rendering
+        // instance; the swapchain image never needs a separate resolve
+        // pass. Without MSAA, rendering targets the swapchain image
+        // directly, matching the previous single-sample behavior.
+        let color_attachment = if let Some(msaa_image) = self.frame.color(frame_index) {
+            let msaa_view = msaa_image.view().ok_or(VulkanBackendError::MsaaColorViewMissing)?;
+
+            self.transition_color_image(
+                command_buffer,
+                msaa_image.handle(),
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::NONE,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+            );
+
+            vk::RenderingAttachmentInfo::default()
+                .image_view(msaa_view)
+                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .resolve_mode(vk::ResolveModeFlags::AVERAGE)
+                .resolve_image_view(image_view)
+                .resolve_image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                .clear_value(clear_value)
+        } else {
+            vk::RenderingAttachmentInfo::default()
+                .image_view(image_view)
+                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::STORE)
+                .clear_value(clear_value)
+        };
 
         let color_attachments = [color_attachment];
 
         let depth_attachment = vk::RenderingAttachmentInfo::default()
-            .image_view(self.depth_attachment.view())
+            .image_view(self.frame.depth(frame_index).view())
             .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::DONT_CARE)
@@ -672,7 +729,9 @@ impl VulkanBackend {
             min_depth: 0.0,
             max_depth: 1.0,
         };
+
         let viewports = [viewport];
+
         let scissors = [render_area];
 
         // SAFETY: The command buffer is recording, the dynamic-rendering
@@ -731,7 +790,7 @@ impl VulkanBackend {
             logical.cmd_end_rendering(command_buffer);
         }
 
-        self.transition_swapchain_image(
+        self.transition_color_image(
             command_buffer,
             image,
             vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
@@ -751,8 +810,10 @@ impl VulkanBackend {
         Ok(())
     }
 
+    /// Transitions a color-aspect image (the swapchain image or the
+    /// MSAA color attachment) between layouts.
     #[allow(clippy::too_many_arguments)]
-    fn transition_swapchain_image(
+    fn transition_color_image(
         &self,
         command_buffer: vk::CommandBuffer,
         image: vk::Image,
@@ -786,7 +847,7 @@ impl VulkanBackend {
         let dependency_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
 
         // SAFETY: `command_buffer` is recording, and the barrier references
-        // the live swapchain image acquired for this frame.
+        // a live color image acquired or owned by this backend.
         unsafe {
             self.device
                 .logical()

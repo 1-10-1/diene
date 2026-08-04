@@ -120,10 +120,12 @@ impl GpuDrawList {
 
         let draw_count = u32::try_from(draws.len())
             .map_err(|_| VulkanDrawError::DrawCountTooLarge { count: draws.len() })?;
+
         let draw_items = draws
             .iter()
             .map(|draw| DrawItem::new(draw.mesh, draw.material, draw.transform))
             .collect::<Vec<_>>();
+
         let indirect_commands = draws
             .iter()
             .map(|draw| vk::DrawIndirectCommand {
@@ -143,6 +145,7 @@ impl GpuDrawList {
             as_bytes(&draw_items),
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
         )?;
+
         let indirect = VulkanBuffer::from_staged_bytes(
             device.logical(),
             allocator.handle(),
@@ -152,6 +155,7 @@ impl GpuDrawList {
             as_bytes(&indirect_commands),
             vk::BufferUsageFlags::INDIRECT_BUFFER,
         )?;
+
         let draw_address = draws.device_address(device.logical());
 
         if draw_address == 0 {

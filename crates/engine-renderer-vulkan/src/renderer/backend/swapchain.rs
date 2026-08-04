@@ -81,15 +81,6 @@ impl VulkanSwapchain {
 }
 
 impl VulkanSwapchain {
-    pub(super) fn new(
-        instance: &VulkanInstance,
-        device: Arc<device::VulkanLogicalDevice>,
-        surface: &VulkanSurface,
-        surface_config: &SurfaceConfig,
-    ) -> core::result::Result<Self, VulkanSwapchainError> {
-        Self::new_replacing(instance, device, surface, surface_config, vk::SwapchainKHR::null())
-    }
-
     pub(super) fn new_replacing(
         instance: &VulkanInstance,
         device: Arc<device::VulkanLogicalDevice>,

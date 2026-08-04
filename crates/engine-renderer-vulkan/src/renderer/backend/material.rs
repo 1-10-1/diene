@@ -1,5 +1,5 @@
 use ash::vk;
-use engine_renderer_api::MaterialData;
+use engine_renderer_api::{MaterialData, glm};
 use thiserror::Error;
 
 use crate::renderer::backend::{
@@ -44,8 +44,8 @@ struct GpuMaterialData {
 }
 
 impl GpuMaterialData {
-    fn new(albedo: TextureHandle, tint: [f32; 4]) -> Self {
-        Self { albedo_texture_index: albedo.index(), _padding: [0; 3], tint }
+    fn new(albedo: TextureHandle, tint: glm::Vec4) -> Self {
+        Self { albedo_texture_index: albedo.index(), _padding: [0; 3], tint: tint.into() }
     }
 }
 
@@ -82,15 +82,17 @@ impl MaterialTable {
         let materials = materials
             .iter()
             .map(|material| {
-                let albedo = material
-                    .albedo_texture()
-                    .map_or(Ok(texture_heap.default_handle()), |texture| {
-                        texture_heap.insert(allocator, command, device, texture)
-                    })?;
-
-                Ok(GpuMaterialData::new(albedo, material.tint()))
+                Ok(GpuMaterialData::new(
+                    material
+                        .albedo_texture()
+                        .map_or(Ok(texture_heap.default_handle()), |texture| {
+                            texture_heap.insert(allocator, command, device, texture)
+                        })?,
+                    material.tint(),
+                ))
             })
             .collect::<core::result::Result<Vec<_>, VulkanMaterialError>>()?;
+
         let buffer = VulkanBuffer::from_staged_bytes(
             device.logical(),
             allocator.handle(),

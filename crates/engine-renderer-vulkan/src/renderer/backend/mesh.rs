@@ -1,5 +1,5 @@
 use ash::vk;
-use engine_renderer_api::MeshData;
+use engine_renderer_api::{MeshData, MeshVertex};
 use thiserror::Error;
 
 use crate::renderer::backend::{
@@ -19,6 +19,26 @@ pub(super) enum VulkanMeshError {
 
     #[error("{buffer} buffer device address is null")]
     NullDeviceAddress { buffer: &'static str },
+}
+
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Debug)]
+struct GpuMeshVertex {
+    position: [f32; 4],
+    color: [f32; 4],
+    uv: [f32; 4],
+}
+
+impl From<MeshVertex> for GpuMeshVertex {
+    fn from(vertex: MeshVertex) -> Self {
+        let [u, v] = vertex.uv.into();
+
+        Self {
+            position: vertex.position.into(),
+            color: vertex.color.into(),
+            uv: [u, v, 0.0, 0.0],
+        }
+    }
 }
 
 pub(super) struct GpuMesh {
@@ -42,7 +62,7 @@ impl std::fmt::Debug for GpuMesh {
 }
 
 impl GpuMesh {
-    pub(super) fn from_data(
+    pub(super) fn new(
         allocator: &VulkanAllocator,
         command: &VulkanCommand,
         device: &VulkanDevice,
@@ -50,6 +70,8 @@ impl GpuMesh {
     ) -> core::result::Result<Self, VulkanMeshError> {
         let index_count = u32::try_from(data.indices().len())
             .map_err(|_| VulkanMeshError::IndexCountTooLarge { count: data.indices().len() })?;
+        let upload_vertices =
+            data.vertices().iter().copied().map(GpuMeshVertex::from).collect::<Vec<_>>();
 
         let vertices = VulkanBuffer::from_staged_bytes(
             device.logical(),
@@ -57,7 +79,7 @@ impl GpuMesh {
             command,
             device.graphics_queue(),
             c"mesh vertex buffer",
-            as_bytes(data.vertices()),
+            as_bytes(&upload_vertices),
             vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
         )?;
 
@@ -108,5 +130,36 @@ fn as_bytes<T>(slice: &[T]) -> &[u8] {
     // buffers.
     unsafe {
         core::slice::from_raw_parts(slice.as_ptr().cast::<u8>(), core::mem::size_of_val(slice))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use engine_renderer_api::{MeshVertex, glm};
+
+    use super::GpuMeshVertex;
+
+    #[test]
+    fn gpu_mesh_vertex_matches_shader_layout() {
+        let vertex = GpuMeshVertex::from(MeshVertex::new(
+            glm::Vec4::new(1.0, 2.0, 3.0, 1.0),
+            glm::Vec4::new(0.25, 0.5, 0.75, 1.0),
+            glm::Vec2::new(0.2, 0.8),
+        ));
+
+        assert_eq!(core::mem::size_of::<GpuMeshVertex>(), 48);
+        assert_eq!(core::mem::align_of::<GpuMeshVertex>(), 16);
+        assert_f32x4_eq(vertex.position, [1.0, 2.0, 3.0, 1.0]);
+        assert_f32x4_eq(vertex.color, [0.25, 0.5, 0.75, 1.0]);
+        assert_f32x4_eq(vertex.uv, [0.2, 0.8, 0.0, 0.0]);
+    }
+
+    fn assert_f32x4_eq(actual: [f32; 4], expected: [f32; 4]) {
+        assert!(
+            actual
+                .into_iter()
+                .zip(expected)
+                .all(|(actual, expected)| { (actual - expected).abs() <= f32::EPSILON })
+        );
     }
 }

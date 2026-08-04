@@ -28,7 +28,7 @@ pub(super) struct VulkanImage {
     allocator: Arc<vk_mem::Allocator>,
     device: Arc<VulkanLogicalDevice>,
     handle: vk::Image,
-    view: vk::ImageView,
+    view: Option<vk::ImageView>,
     allocation: Allocation,
     extent: TextureExtent,
     format: vk::Format,
@@ -51,13 +51,101 @@ impl Drop for VulkanImage {
         // created through these device/allocator handles and are destroyed
         // exactly once here.
         unsafe {
-            self.device.handle().destroy_image_view(self.view, None);
+            if let Some(view) = self.view {
+                self.device.handle().destroy_image_view(view, None);
+            }
+
             self.allocator.destroy_image(self.handle, &mut self.allocation);
         }
     }
 }
 
 impl VulkanImage {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn new(
+        allocator: Arc<vk_mem::Allocator>,
+        device: &VulkanDevice,
+        name: &'static std::ffi::CStr,
+        extent: vk::Extent2D,
+        format: vk::Format,
+        sample_count: vk::SampleCountFlags,
+        usage_flags: vk::ImageUsageFlags,
+        aspect_mask: vk::ImageAspectFlags,
+        mip_levels: u32,
+    ) -> core::result::Result<Self, VulkanImageError> {
+        let image_info = vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(format)
+            .extent(vk::Extent3D { width: extent.width, height: extent.height, depth: 1 })
+            .mip_levels(mip_levels)
+            .array_layers(1)
+            .samples(sample_count)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .usage(usage_flags)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .initial_layout(vk::ImageLayout::UNDEFINED);
+
+        let allocation_info = AllocationCreateInfo {
+            usage: MemoryUsage::AutoPreferDevice,
+            flags: AllocationCreateFlags::empty(),
+            ..Default::default()
+        };
+
+        // SAFETY: `allocator` and `image_info` are valid for the duration of
+        // the call. VMA creates and binds the allocation before returning.
+        let (handle, allocation) = vk_try!("create texture image", unsafe {
+            allocator.create_image(&image_info, &allocation_info)
+        });
+
+        #[cfg(debug_assertions)]
+        vk_try!("name texture image", device.logical().set_name(name, handle));
+
+        // Only create the image view if the image is not being used for
+        // purely transfer reasons.
+        let view = if (usage_flags
+            & (vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST))
+            == usage_flags
+        {
+            None
+        } else {
+            let view_info = vk::ImageViewCreateInfo::default()
+                .image(handle)
+                .view_type(vk::ImageViewType::TYPE_2D)
+                .format(format)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                });
+
+            // SAFETY: `handle`  is a live 2D color image compatible with
+            // `view_info`.
+            let image_view = vk_try!("create texture image view", unsafe {
+                device.logical().handle().create_image_view(&view_info, None)
+            });
+
+            #[cfg(debug_assertions)]
+            vk_try!(
+                "name texture image view",
+                device.logical().set_name(c"texture image view", image_view)
+            );
+
+            Some(image_view)
+        };
+
+        Ok(Self {
+            allocator,
+            device: device.logical().clone(),
+            handle,
+            view,
+            allocation,
+            extent: TextureExtent::new(extent.width, extent.height),
+            format,
+        })
+    }
+
     pub(super) fn from_texture_data(
         allocator: Arc<vk_mem::Allocator>,
         command: &VulkanCommand,
@@ -129,7 +217,7 @@ impl VulkanImage {
                 layer_count: 1,
             });
 
-        // SAFETY: `handle` is a live 2D color image compatible with
+        // SAFETY: `handle`  is a live 2D color image compatible with
         // `view_info`.
         let view = vk_try!("create texture image view", unsafe {
             device.logical().handle().create_image_view(&view_info, None)
@@ -145,14 +233,18 @@ impl VulkanImage {
             allocator,
             device: device.logical().clone(),
             handle,
-            view,
+            view: Some(view),
             allocation,
             extent,
             format,
         })
     }
 
-    pub(super) fn view(&self) -> vk::ImageView {
+    pub(super) fn handle(&self) -> vk::Image {
+        self.handle
+    }
+
+    pub(super) fn view(&self) -> Option<vk::ImageView> {
         self.view
     }
 

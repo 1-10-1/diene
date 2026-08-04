@@ -40,7 +40,7 @@ pub mod renderer {
         HasWindowHandle, MaterialData, MeshData, MeshDataError, MeshVertex, RenderCamera,
         RenderExtent, RenderObject, RenderScene, RenderSceneError, RenderTransform, RenderWindow,
         Renderer, RendererError, RendererFactory, TextureData, TextureDataError, TextureExtent,
-        WindowHandle,
+        WindowHandle, glm,
     };
 }
 

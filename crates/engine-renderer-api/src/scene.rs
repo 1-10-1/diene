@@ -1,14 +1,14 @@
 use std::{error::Error, fmt};
 
-use crate::{MaterialData, MeshData};
+use crate::{MaterialData, MeshData, glm};
 
 /// Camera parameters used to build the renderer view-projection
 /// matrix.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderCamera {
-    eye: [f32; 3],
-    target: [f32; 3],
-    up: [f32; 3],
+    eye: glm::Vec3,
+    target: glm::Vec3,
+    up: glm::Vec3,
     vertical_fov_radians: f32,
     near_plane: f32,
     far_plane: f32,
@@ -17,9 +17,9 @@ pub struct RenderCamera {
 impl Default for RenderCamera {
     fn default() -> Self {
         Self {
-            eye: [0.0, 0.25, 3.2],
-            target: [0.0, 0.0, 0.0],
-            up: [0.0, 1.0, 0.0],
+            eye: glm::Vec3::new(0.0, 0.25, 3.2),
+            target: glm::Vec3::zeros(),
+            up: glm::Vec3::y(),
             vertical_fov_radians: 45.0_f32.to_radians(),
             near_plane: 0.1,
             far_plane: 100.0,
@@ -31,9 +31,9 @@ impl RenderCamera {
     /// Creates camera data from eye, target, up, field-of-view, and
     /// clip planes.
     pub const fn new(
-        eye: [f32; 3],
-        target: [f32; 3],
-        up: [f32; 3],
+        eye: glm::Vec3,
+        target: glm::Vec3,
+        up: glm::Vec3,
         vertical_fov_radians: f32,
         near_plane: f32,
         far_plane: f32,
@@ -42,17 +42,17 @@ impl RenderCamera {
     }
 
     /// Returns the camera position in world space.
-    pub const fn eye(self) -> [f32; 3] {
+    pub const fn eye(self) -> glm::Vec3 {
         self.eye
     }
 
     /// Returns the camera look target in world space.
-    pub const fn target(self) -> [f32; 3] {
+    pub const fn target(self) -> glm::Vec3 {
         self.target
     }
 
     /// Returns the camera up direction.
-    pub const fn up(self) -> [f32; 3] {
+    pub const fn up(self) -> glm::Vec3 {
         self.up
     }
 
@@ -73,10 +73,9 @@ impl RenderCamera {
 }
 
 /// Backend-neutral model transform consumed by renderer backends.
-#[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderTransform {
-    model_rows: [[f32; 4]; 4],
+    model_matrix: glm::Mat4,
 }
 
 impl Default for RenderTransform {
@@ -87,35 +86,30 @@ impl Default for RenderTransform {
 
 impl RenderTransform {
     /// Creates an identity model transform.
-    pub const fn identity() -> Self {
-        Self {
-            model_rows: [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
-        }
+    pub fn identity() -> Self {
+        Self { model_matrix: glm::identity() }
     }
 
     /// Creates a model transform from translation and scale.
-    pub const fn from_translation_scale(translation: [f32; 3], scale: [f32; 3]) -> Self {
-        let [tx, ty, tz] = translation;
-        let [sx, sy, sz] = scale;
+    pub fn from_translation_scale(translation: glm::Vec3, scale: glm::Vec3) -> Self {
+        let [[tx, ty, tz]] = translation.data.0;
+        let [[sx, sy, sz]] = scale.data.0;
 
         Self {
-            model_rows: [
-                [sx, 0.0, 0.0, tx],
-                [0.0, sy, 0.0, ty],
-                [0.0, 0.0, sz, tz],
-                [0.0, 0.0, 0.0, 1.0],
-            ],
+            model_matrix: glm::Mat4::new(
+                sx, 0.0, 0.0, tx, 0.0, sy, 0.0, ty, 0.0, 0.0, sz, tz, 0.0, 0.0, 0.0, 1.0,
+            ),
         }
     }
 
-    /// Returns row-major model matrix rows.
-    pub const fn model_rows(self) -> [[f32; 4]; 4] {
-        self.model_rows
+    /// Creates a new model transform.
+    pub fn new(model_matrix: glm::Mat4) -> Self {
+        Self { model_matrix }
+    }
+
+    /// Returns the model matrix.
+    pub fn model_matrix(self) -> glm::Mat4 {
+        self.model_matrix
     }
 }
 
@@ -286,13 +280,13 @@ fn validate_objects(
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderObject, RenderScene, RenderSceneError, RenderTransform};
-    use crate::{MaterialData, MeshData};
+    use super::{RenderCamera, RenderObject, RenderScene, RenderSceneError, RenderTransform};
+    use crate::{MaterialData, MeshData, glm};
 
     #[test]
     fn scene_accepts_valid_object_indices() {
         let scene = RenderScene::new(
-            [MeshData::quad([0.0; 3], [1.0; 2], [1.0; 4])],
+            [MeshData::quad(glm::Vec3::zeros(), [1.0; 2], glm::Vec4::repeat(1.0))],
             [MaterialData::default()],
             [RenderObject::new(0, 0, RenderTransform::identity())],
         );
@@ -327,7 +321,7 @@ mod tests {
     fn scene_rejects_invalid_material_index() {
         assert_eq!(
             RenderScene::new(
-                [MeshData::quad([0.0; 3], [1.0; 2], [1.0; 4])],
+                [MeshData::quad(glm::Vec3::zeros(), [1.0; 2], glm::Vec4::repeat(1.0))],
                 [],
                 [RenderObject::new(0, 0, RenderTransform::identity())],
             ),
@@ -340,17 +334,28 @@ mod tests {
     }
 
     #[test]
-    fn render_transform_matches_shader_layout() {
-        assert_eq!(core::mem::size_of::<RenderTransform>(), 64);
-        assert_eq!(core::mem::align_of::<RenderTransform>(), 16);
+    fn render_transform_exposes_glm_model_matrix() {
         assert_eq!(
-            RenderTransform::from_translation_scale([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]).model_rows(),
-            [
-                [4.0, 0.0, 0.0, 1.0],
-                [0.0, 5.0, 0.0, 2.0],
-                [0.0, 0.0, 6.0, 3.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
+            RenderTransform::from_translation_scale(
+                glm::Vec3::new(1.0, 2.0, 3.0),
+                glm::Vec3::new(4.0, 5.0, 6.0),
+            )
+            .model_matrix(),
+            glm::Mat4::new(
+                4.0, 0.0, 0.0, 1.0, 0.0, 5.0, 0.0, 2.0, 0.0, 0.0, 6.0, 3.0, 0.0, 0.0, 0.0, 1.0,
+            ),
         );
+    }
+
+    #[test]
+    fn render_camera_exposes_glm_vectors() {
+        let eye = glm::Vec3::new(1.0, 2.0, 3.0);
+        let target = glm::Vec3::new(0.0, 1.0, 0.0);
+        let up = glm::Vec3::y();
+        let camera = RenderCamera::new(eye, target, up, 1.0, 0.1, 100.0);
+
+        assert_eq!(camera.eye(), eye);
+        assert_eq!(camera.target(), target);
+        assert_eq!(camera.up(), up);
     }
 }

@@ -27,6 +27,7 @@ pub(super) struct VulkanCommand {
     transfer_pool: ash::vk::CommandPool,
     compute_pool: ash::vk::CommandPool,
     graphics_command_buffer: ash::vk::CommandBuffer,
+    render_command_buffers: [ash::vk::CommandBuffer; super::FRAMES_IN_FLIGHT],
     device: Arc<device::VulkanLogicalDevice>,
 }
 
@@ -62,6 +63,7 @@ impl VulkanCommand {
             transfer_pool: CommandPool::default(),
             compute_pool: CommandPool::default(),
             graphics_command_buffer: CommandBuffer::default(),
+            render_command_buffers: [CommandBuffer::default(); super::FRAMES_IN_FLIGHT],
             device,
         };
 
@@ -135,11 +137,35 @@ impl VulkanCommand {
                 .set_name(c"graphics command buffer", command.graphics_command_buffer),
         );
 
+        // SAFETY: `device` is alive.
+        let render_command_buffers = vk_try!("allocate render command buffers", unsafe {
+            command.device.handle().allocate_command_buffers(
+                &vk::CommandBufferAllocateInfo::default()
+                    .command_pool(command.graphics_pool)
+                    .level(vk::CommandBufferLevel::PRIMARY)
+                    .command_buffer_count(u32::try_from(super::FRAMES_IN_FLIGHT).unwrap_or(0)),
+            )
+        });
+
+        command.render_command_buffers = render_command_buffers
+            .try_into()
+            .map_err(|_| VulkanCommandError::NoCommandBufferReturned)?;
+
+        #[cfg(debug_assertions)]
+        for (index, buffer) in command.render_command_buffers.iter().enumerate() {
+            if let Ok(name) = std::ffi::CString::new(format!("render command buffer {index}")) {
+                vk_try!(
+                    "name render command buffer",
+                    command.device.set_name(name.as_c_str(), *buffer),
+                );
+            }
+        }
+
         Ok(command)
     }
 
-    pub(super) fn graphics_command_buffer(&self) -> vk::CommandBuffer {
-        self.graphics_command_buffer
+    pub(super) fn render_command_buffer(&self, frame_index: usize) -> vk::CommandBuffer {
+        self.render_command_buffers[frame_index % super::FRAMES_IN_FLIGHT]
     }
 
     pub(super) fn copy_buffer(

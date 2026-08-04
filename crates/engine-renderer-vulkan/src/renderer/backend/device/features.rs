@@ -38,13 +38,13 @@ pub(super) fn get_features_info(
 ) -> FeaturesInfo {
     let mut availability = Vec::new();
 
-    let mut enabled_10 = vk::PhysicalDeviceFeatures::default();
-    let mut enabled_11 = vk::PhysicalDeviceVulkan11Features::default();
-    let mut enabled_12 = vk::PhysicalDeviceVulkan12Features::default();
-    let mut enabled_13 = vk::PhysicalDeviceVulkan13Features::default();
+    let mut enabled_f10 = vk::PhysicalDeviceFeatures::default();
+    let mut enabled_f11 = vk::PhysicalDeviceVulkan11Features::default();
+    let mut enabled_f12 = vk::PhysicalDeviceVulkan12Features::default();
+    let mut enabled_f13 = vk::PhysicalDeviceVulkan13Features::default();
 
     require_features!(availability;
-        supported_10 => enabled_10 {
+        supported_10 => enabled_f10 {
             geometry_shader => "Geometry shader availability",
             sampler_anisotropy => "Anisotropy availability",
             sample_rate_shading => "Sample rate shading availability",
@@ -56,11 +56,11 @@ pub(super) fn get_features_info(
             shader_int64 => "64-bit integer shader support availability",
         }
 
-        supported_11 => enabled_11 {
+        supported_11 => enabled_f11 {
             shader_draw_parameters => "Shader draw parameters availability",
         }
 
-        supported_12 => enabled_12 {
+        supported_12 => enabled_f12 {
             storage_buffer8_bit_access => "8-bit storage buffer access availability",
             descriptor_indexing => "Descriptor indexing availability",
             shader_sampled_image_array_non_uniform_indexing => "Non-uniform sampled image array indexing availability",
@@ -72,17 +72,11 @@ pub(super) fn get_features_info(
             vulkan_memory_model_device_scope => "Vulkan memory model device scope availability",
         }
 
-        supported_13 => enabled_13 {
+        supported_13 => enabled_f13 {
             synchronization2 => "Synchronization2 availability",
             dynamic_rendering => "Dynamic rendering availability",
         }
     );
 
-    FeaturesInfo {
-        availability,
-        enabled_f10: enabled_10,
-        enabled_f11: enabled_11,
-        enabled_f12: enabled_12,
-        enabled_f13: enabled_13,
-    }
+    FeaturesInfo { availability, enabled_f10, enabled_f11, enabled_f12, enabled_f13 }
 }

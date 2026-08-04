@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ash::vk::{self, Handle};
-use engine_renderer_api::{TextureData, TextureExtent};
+use engine_renderer_api::{TextureData, TextureExtent, glm};
 use thiserror::Error;
 
 use crate::renderer::backend::{
@@ -47,7 +47,7 @@ impl std::fmt::Debug for VulkanTexture {
 }
 
 impl VulkanTexture {
-    fn from_data(
+    fn new(
         allocator: &VulkanAllocator,
         command: &VulkanCommand,
         device: &VulkanDevice,
@@ -64,8 +64,12 @@ impl VulkanTexture {
         Ok(Self { image })
     }
 
+    // A texture image is always created with SAMPLED usage, which is
+    // never purely a transfer usage, so `VulkanImage` always creates
+    // a view for it.
+    #[allow(clippy::expect_used)]
     fn image_view(&self) -> vk::ImageView {
-        self.image.view()
+        self.image.view().expect("texture images are always created with a view")
     }
 
     #[allow(dead_code)]
@@ -181,9 +185,12 @@ impl BindlessTextureHeap {
         device: &VulkanDevice,
     ) -> core::result::Result<Self, VulkanTextureError> {
         let descriptor_set_layout = create_descriptor_set_layout(device.logical())?;
+
         let descriptor_pool = create_descriptor_pool(device.logical())?;
+
         let descriptor_set =
             allocate_descriptor_set(device.logical(), descriptor_pool, descriptor_set_layout)?;
+
         let sampler = VulkanSampler::new(device)?;
 
         write_sampler_descriptor(device.logical(), descriptor_set, sampler.handle());
@@ -202,7 +209,7 @@ impl BindlessTextureHeap {
             allocator,
             command,
             device,
-            &TextureData::solid_rgba8("default-white-albedo", [255, 255, 255, 255]),
+            &TextureData::solid_rgba8("default-white-albedo", glm::U8Vec4::repeat(255)),
         )?;
 
         Ok(heap)
@@ -223,8 +230,10 @@ impl BindlessTextureHeap {
             });
         }
 
-        let texture = VulkanTexture::from_data(allocator, command, device, data)?;
+        let texture = VulkanTexture::new(allocator, command, device, data)?;
+
         write_texture_descriptor(&self.device, self.descriptor_set, TextureHandle(index), &texture);
+
         self.textures.push(texture);
 
         Ok(TextureHandle(index))
@@ -258,10 +267,13 @@ fn create_descriptor_set_layout(
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::FRAGMENT),
     ];
+
     let binding_flags =
         [vk::DescriptorBindingFlags::PARTIALLY_BOUND, vk::DescriptorBindingFlags::empty()];
+
     let mut binding_flags_info =
         vk::DescriptorSetLayoutBindingFlagsCreateInfo::default().binding_flags(&binding_flags);
+
     let create_info = vk::DescriptorSetLayoutCreateInfo::default()
         .bindings(&bindings)
         .push_next(&mut binding_flags_info);
@@ -291,6 +303,7 @@ fn create_descriptor_pool(
         },
         vk::DescriptorPoolSize { ty: vk::DescriptorType::SAMPLER, descriptor_count: 1 },
     ];
+
     let create_info = vk::DescriptorPoolCreateInfo::default().max_sets(1).pool_sizes(&pool_sizes);
 
     // SAFETY: `create_info` only references local slices that live
@@ -314,6 +327,7 @@ fn allocate_descriptor_set(
     descriptor_set_layout: vk::DescriptorSetLayout,
 ) -> core::result::Result<vk::DescriptorSet, VulkanTextureError> {
     let layouts = [descriptor_set_layout];
+
     let allocate_info = vk::DescriptorSetAllocateInfo::default()
         .descriptor_pool(descriptor_pool)
         .set_layouts(&layouts);
@@ -322,6 +336,7 @@ fn allocate_descriptor_set(
     let mut sets = vk_try!("allocate bindless texture descriptor set", unsafe {
         device.handle().allocate_descriptor_sets(&allocate_info)
     });
+
     let set = sets.pop().ok_or_else(|| {
         VulkanCallError::new("allocate bindless texture descriptor set", vk::Result::ERROR_UNKNOWN)
     })?;
@@ -341,6 +356,7 @@ fn write_sampler_descriptor(
     sampler: vk::Sampler,
 ) {
     let sampler_info = [vk::DescriptorImageInfo::default().sampler(sampler)];
+
     let writes = [vk::WriteDescriptorSet::default()
         .dst_set(descriptor_set)
         .dst_binding(1)
@@ -362,6 +378,7 @@ fn write_texture_descriptor(
     let image_info = [vk::DescriptorImageInfo::default()
         .image_view(texture.image_view())
         .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+
     let writes = [vk::WriteDescriptorSet::default()
         .dst_set(descriptor_set)
         .dst_binding(0)

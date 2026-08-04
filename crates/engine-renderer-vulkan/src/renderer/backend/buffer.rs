@@ -146,7 +146,7 @@ impl VulkanBuffer {
 
         // SAFETY: The allocation was created with host sequential-write
         // access.
-        let flush_result = unsafe {
+        vk_try!("flush buffer memory", unsafe {
             let mapped =
                 vk_try!("map buffer memory", self.allocator.map_memory(&mut self.allocation),);
 
@@ -155,11 +155,11 @@ impl VulkanBuffer {
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), mapped, bytes.len());
 
             let flush_result = self.allocator.flush_allocation(&self.allocation, 0, size);
-            self.allocator.unmap_memory(&mut self.allocation);
-            flush_result
-        };
 
-        vk_try!("flush buffer memory", flush_result);
+            self.allocator.unmap_memory(&mut self.allocation);
+
+            flush_result
+        });
 
         Ok(())
     }

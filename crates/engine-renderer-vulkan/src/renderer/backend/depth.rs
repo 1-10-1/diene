@@ -56,6 +56,7 @@ impl DepthAttachment {
         allocator: &VulkanAllocator,
         device: &VulkanDevice,
         extent: vk::Extent2D,
+        sample_count: vk::SampleCountFlags,
     ) -> core::result::Result<Self, VulkanDepthError> {
         let image_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
@@ -63,16 +64,18 @@ impl DepthAttachment {
             .extent(vk::Extent3D { width: extent.width, height: extent.height, depth: 1 })
             .mip_levels(1)
             .array_layers(1)
-            .samples(vk::SampleCountFlags::TYPE_1)
+            .samples(sample_count)
             .tiling(vk::ImageTiling::OPTIMAL)
             .usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED);
+
         let allocation_info = AllocationCreateInfo {
             usage: MemoryUsage::AutoPreferDevice,
             flags: AllocationCreateFlags::empty(),
             ..Default::default()
         };
+
         let allocator_handle = allocator.handle();
 
         // SAFETY: `allocator_handle` and `image_info` are valid for the
@@ -143,7 +146,9 @@ impl DepthAttachment {
                 base_array_layer: 0,
                 layer_count: 1,
             });
+
         let barriers = [barrier];
+
         let dependency_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
 
         // SAFETY: `command_buffer` is recording, and the barrier references

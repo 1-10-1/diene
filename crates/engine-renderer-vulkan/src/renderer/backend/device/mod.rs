@@ -194,4 +194,24 @@ impl VulkanDevice {
     pub(super) fn graphics_queue(&self) -> vk::Queue {
         self.graphics_queue
     }
+
+    pub(super) fn get_max_usable_sample_count(&self) -> vk::SampleCountFlags {
+        let counts = self.properties.limits.framebuffer_color_sample_counts
+            & self.properties.limits.framebuffer_depth_sample_counts;
+
+        for c in [
+            vk::SampleCountFlags::TYPE_64,
+            vk::SampleCountFlags::TYPE_32,
+            vk::SampleCountFlags::TYPE_16,
+            vk::SampleCountFlags::TYPE_8,
+            vk::SampleCountFlags::TYPE_4,
+            vk::SampleCountFlags::TYPE_2,
+        ] {
+            if counts.contains(c) {
+                return c;
+            }
+        }
+
+        vk::SampleCountFlags::TYPE_1
+    }
 }

@@ -1,8 +1,8 @@
-use std::{
-    error::Error,
-    fmt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
+
+use thiserror::Error;
+
+use crate::glm;
 
 /// Width and height of a 2D texture in pixels.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -34,12 +34,14 @@ impl TextureExtent {
 }
 
 /// Errors returned while creating CPU texture data.
-#[derive(Debug)]
+#[derive(Error, Debug)]
 pub enum TextureDataError {
     /// Texture extent must have non-zero width and height.
+    #[error("texture extent must be non-zero: {0:?}")]
     EmptyExtent(TextureExtent),
 
     /// RGBA8 byte length does not match the supplied extent.
+    #[error("invalid rgba8 texture byte length: expected {expected}, got {actual}")]
     InvalidRgba8ByteLength {
         /// Expected number of bytes for the extent.
         expected: usize,
@@ -49,60 +51,30 @@ pub enum TextureDataError {
     },
 
     /// RGBA8 byte length overflowed `usize` for the supplied extent.
+    #[error("rgba8 byte length overflowed for extent {0:?}")]
     ByteLengthOverflow(TextureExtent),
 
     /// Failed to open an image file.
+    #[error("failed to open image file {}", path.display())]
     ImageOpen {
         /// Image path that failed to open.
         path: PathBuf,
 
         /// Underlying I/O error.
+        #[source]
         source: Box<std::io::Error>,
     },
 
     /// Failed to decode an image file.
+    #[error("failed to decode image file {}", path.display())]
     ImageDecode {
         /// Image path that failed to decode.
         path: PathBuf,
 
         /// Underlying image decoding error.
+        #[source]
         source: Box<image::ImageError>,
     },
-}
-
-impl fmt::Display for TextureDataError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EmptyExtent(extent) => {
-                write!(formatter, "texture extent must be non-zero: {extent:?}")
-            }
-            Self::InvalidRgba8ByteLength { expected, actual } => write!(
-                formatter,
-                "invalid rgba8 texture byte length: expected {expected}, got {actual}",
-            ),
-            Self::ByteLengthOverflow(extent) => {
-                write!(formatter, "rgba8 byte length overflowed for extent {extent:?}")
-            }
-            Self::ImageOpen { path, .. } => {
-                write!(formatter, "failed to open image file {}", path.display())
-            }
-            Self::ImageDecode { path, .. } => {
-                write!(formatter, "failed to decode image file {}", path.display())
-            }
-        }
-    }
-}
-
-impl Error for TextureDataError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::ImageOpen { source, .. } => Some(source.as_ref()),
-            Self::ImageDecode { source, .. } => Some(source.as_ref()),
-            Self::EmptyExtent(_)
-            | Self::InvalidRgba8ByteLength { .. }
-            | Self::ByteLengthOverflow(_) => None,
-        }
-    }
 }
 
 /// CPU-side RGBA8 image pixels.
@@ -123,8 +95,8 @@ impl ImageData {
     pub const RGBA8_BYTES_PER_PIXEL: usize = 4;
 
     /// Creates a one-pixel RGBA8 image with the supplied color.
-    pub fn solid_rgba8(color: [u8; 4]) -> Self {
-        Self { extent: TextureExtent::new(1, 1), pixels: color.into() }
+    pub fn solid_rgba8(color: glm::U8Vec4) -> Self {
+        Self { extent: TextureExtent::new(1, 1), pixels: color.as_slice().to_vec() }
     }
 
     /// Creates the default magenta/black checkerboard image.
@@ -155,6 +127,7 @@ impl ImageData {
         }
 
         let pixels = pixels.into();
+
         let expected =
             extent.rgba8_byte_len().ok_or(TextureDataError::ByteLengthOverflow(extent))?;
         let actual = pixels.len();
@@ -170,9 +143,11 @@ impl ImageData {
     /// crate.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, TextureDataError> {
         let path = path.as_ref();
+
         let reader = image::ImageReader::open(path).map_err(|source| {
             TextureDataError::ImageOpen { path: path.to_owned(), source: Box::new(source) }
         })?;
+
         let image = reader.decode().map_err(|source| TextureDataError::ImageDecode {
             path: path.to_owned(),
             source: Box::new(source),
@@ -232,7 +207,7 @@ impl TextureData {
 
     /// Creates a labeled one-pixel RGBA8 texture with the supplied
     /// color.
-    pub fn solid_rgba8(label: impl Into<String>, color: [u8; 4]) -> Self {
+    pub fn solid_rgba8(label: impl Into<String>, color: glm::U8Vec4) -> Self {
         Self { label: Some(label.into()), image: ImageData::solid_rgba8(color) }
     }
 
@@ -317,6 +292,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{ImageData, TextureData, TextureDataError, TextureExtent};
+    use crate::glm;
 
     #[test]
     fn default_image_is_checkerboard() {
@@ -341,7 +317,7 @@ mod tests {
 
     #[test]
     fn solid_texture_is_one_pixel_color() {
-        let texture = TextureData::solid_rgba8("white", [255, 255, 255, 255]);
+        let texture = TextureData::solid_rgba8("white", glm::U8Vec4::repeat(255));
 
         assert_eq!(texture.label(), Some("white"));
         assert_eq!(texture.extent(), TextureExtent::new(1, 1));

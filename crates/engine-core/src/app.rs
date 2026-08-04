@@ -1,5 +1,7 @@
 //! Application lifecycle and frame coordination.
 
+use std::time::Instant;
+
 use common::{logging::macros::*, timer::Stopwatch};
 use engine_renderer_api::{
     BoxedRenderer, RenderExtent, RenderWindow, RendererError, RendererFactory,
@@ -99,7 +101,7 @@ impl ApplicationHost {
     pub fn builder(renderer_factory: impl RendererFactory + 'static) -> ApplicationHostBuilder {
         ApplicationHostBuilder {
             name: None,
-            renderer_factory: Box::new(RendererFactoryAdapter::new(renderer_factory)),
+            renderer_factory: Box::new(RendererFactoryAdapter { inner: renderer_factory }),
         }
     }
 
@@ -170,25 +172,42 @@ impl ApplicationHandler for ApplicationHost {
             return;
         }
 
-        let window = match Window::create(event_loop, &self.name) {
-            Ok(window) => {
-                info!("[{}] created application window ({:?})", self.name, window.id());
-                window
-            }
-            Err(error) => {
-                self.fail(event_loop, ApplicationHostError::Window(error));
-                return;
+        let window = {
+            let start = Instant::now();
+
+            match Window::create(event_loop, &self.name) {
+                Ok(window) => {
+                    info!(
+                        "[{}] created application window ({:?}) ({:.2}ms)",
+                        self.name,
+                        window.id(),
+                        start.elapsed().as_millis()
+                    );
+                    window
+                }
+                Err(error) => {
+                    self.fail(event_loop, ApplicationHostError::Window(error));
+                    return;
+                }
             }
         };
 
-        let renderer = match self.renderer_factory.create_renderer(&window) {
-            Ok(renderer) => {
-                info!("[{}] created renderer", self.name);
-                renderer
-            }
-            Err(error) => {
-                self.fail(event_loop, ApplicationHostError::Renderer(error));
-                return;
+        let renderer = {
+            let start = Instant::now();
+
+            match self.renderer_factory.create_renderer(&window) {
+                Ok(renderer) => {
+                    info!(
+                        "[{}] created renderer ({:.2}ms)",
+                        self.name,
+                        start.elapsed().as_millis()
+                    );
+                    renderer
+                }
+                Err(error) => {
+                    self.fail(event_loop, ApplicationHostError::Renderer(error));
+                    return;
+                }
             }
         };
 
@@ -282,15 +301,6 @@ where
     F: RendererFactory,
 {
     inner: F,
-}
-
-impl<F> RendererFactoryAdapter<F>
-where
-    F: RendererFactory,
-{
-    fn new(inner: F) -> Self {
-        Self { inner }
-    }
 }
 
 impl<F> ErasedRendererFactory for RendererFactoryAdapter<F>

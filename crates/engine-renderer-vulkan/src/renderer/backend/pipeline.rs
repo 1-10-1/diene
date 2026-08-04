@@ -101,6 +101,7 @@ impl VulkanPipelineLayoutBuilder {
         device: Arc<VulkanLogicalDevice>,
     ) -> core::result::Result<VulkanPipelineLayout, VulkanPipelineError> {
         let push_constant_ranges = self.push_constants.into_iter().collect::<Vec<_>>();
+
         let create_info = vk::PipelineLayoutCreateInfo::default()
             .set_layouts(&self.descriptor_set_layouts)
             .push_constant_ranges(&push_constant_ranges);
@@ -659,6 +660,7 @@ impl<'a> VulkanGraphicsPipelineBuilder<'a> {
             let cache_data = vk_try!("get pipeline cache data", unsafe {
                 pipeline.device.handle().get_pipeline_cache_data(pipeline_cache.handle())
             });
+
             write_pipeline_cache(&cache_path, &cache_data)?;
         }
 
@@ -748,6 +750,7 @@ fn create_pipeline_cache(
         }
         Err(result) => {
             debug!("Cache creation for graphics pipeline '{name}' failed: {result:?}");
+
             Ok(None)
         }
     }
@@ -771,11 +774,13 @@ fn load_compatible_pipeline_cache(
     match fs::read(path) {
         Ok(cache_data) => compatible_pipeline_cache(cache_data, properties).or_else(|| {
             debug!("Ignoring incompatible pipeline cache `{}`", path.display());
+
             None
         }),
         Err(err) if err.kind() == io::ErrorKind::NotFound => None,
         Err(err) => {
             debug!("Ignoring unreadable pipeline cache `{}`: {err}", path.display());
+
             None
         }
     }
