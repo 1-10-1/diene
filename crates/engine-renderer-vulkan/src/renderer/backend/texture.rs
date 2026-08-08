@@ -106,7 +106,7 @@ impl VulkanSampler {
         let create_info = vk::SamplerCreateInfo::default()
             .mag_filter(vk::Filter::NEAREST)
             .min_filter(vk::Filter::NEAREST)
-            .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
+            .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
             .address_mode_u(vk::SamplerAddressMode::REPEAT)
             .address_mode_v(vk::SamplerAddressMode::REPEAT)
             .address_mode_w(vk::SamplerAddressMode::REPEAT)
@@ -116,7 +116,7 @@ impl VulkanSampler {
             .compare_enable(false)
             .compare_op(vk::CompareOp::ALWAYS)
             .min_lod(0.0)
-            .max_lod(0.0)
+            .max_lod(vk::LOD_CLAMP_NONE)
             .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
             .unnormalized_coordinates(false);
 

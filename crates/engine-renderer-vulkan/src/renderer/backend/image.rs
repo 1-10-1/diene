@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ash::vk;
+use common::logging::macros::*;
 use engine_renderer_api::{TextureData, TextureExtent};
 use thiserror::Error;
 use vk_mem::{Alloc, Allocation, AllocationCreateFlags, AllocationCreateInfo, MemoryUsage};
@@ -12,6 +13,11 @@ use crate::renderer::backend::{
     device::{VulkanDevice, VulkanLogicalDevice},
 };
 
+/// Pixel format used for all bindless texture images. Device support
+/// for linear-filtered blits (needed to generate mipmaps) is queried
+/// against this specific format in [`VulkanDevice::new`].
+pub(super) const TEXTURE_FORMAT: vk::Format = vk::Format::R8G8B8A8_SRGB;
+
 #[derive(Debug, Error)]
 pub(super) enum VulkanImageError {
     #[error(transparent)]
@@ -22,6 +28,12 @@ pub(super) enum VulkanImageError {
 
     #[error(transparent)]
     Command(#[from] VulkanCommandError),
+}
+
+/// Returns the full mip chain length for a `width` x `height` image,
+/// i.e. `floor(log2(max(width, height))) + 1`.
+pub(super) fn mip_level_count(width: u32, height: u32) -> u32 {
+    32 - width.max(height).max(1).leading_zeros()
 }
 
 pub(super) struct VulkanImage {
@@ -115,7 +127,7 @@ impl VulkanImage {
                 .subresource_range(vk::ImageSubresourceRange {
                     aspect_mask,
                     base_mip_level: 0,
-                    level_count: 1,
+                    level_count: mip_levels,
                     base_array_layer: 0,
                     layer_count: 1,
                 });
@@ -154,7 +166,25 @@ impl VulkanImage {
         data: &TextureData,
     ) -> core::result::Result<Self, VulkanImageError> {
         let extent = data.extent();
-        let format = vk::Format::R8G8B8A8_SRGB;
+        let format = TEXTURE_FORMAT;
+
+        let mip_levels = if device.supports_texture_mipmap_blit() {
+            let mip_levels = mip_level_count(extent.width, extent.height);
+
+            debug!(
+                "generating {mip_levels} mip levels for {}x{} texture",
+                extent.width, extent.height
+            );
+
+            mip_levels
+        } else {
+            warn!(
+                "device does not support linear-filtered blits of {format:?}; texture `{name:?}` \
+                 will have no mipmaps"
+            );
+
+            1
+        };
 
         let staging_size = vk::DeviceSize::try_from(data.byte_len())
             .map_err(|_| VulkanBufferError::BufferTooLarge { bytes: data.byte_len() })?;
@@ -171,15 +201,23 @@ impl VulkanImage {
 
         staging.write_bytes(data.pixels())?;
 
+        let mut usage = vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED;
+
+        if mip_levels > 1 {
+            // Each mip level (other than the last) is blitted from as the
+            // source of the next level's blit.
+            usage |= vk::ImageUsageFlags::TRANSFER_SRC;
+        }
+
         let image_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(format)
             .extent(vk::Extent3D { width: extent.width, height: extent.height, depth: 1 })
-            .mip_levels(1)
+            .mip_levels(mip_levels)
             .array_layers(1)
             .samples(vk::SampleCountFlags::TYPE_1)
             .tiling(vk::ImageTiling::OPTIMAL)
-            .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED)
+            .usage(usage)
             .sharing_mode(vk::SharingMode::EXCLUSIVE)
             .initial_layout(vk::ImageLayout::UNDEFINED);
 
@@ -198,12 +236,22 @@ impl VulkanImage {
         #[cfg(debug_assertions)]
         vk_try!("name texture image", device.logical().set_name(name, handle));
 
-        command.copy_buffer_to_image(
-            device.graphics_queue(),
-            staging.handle(),
-            handle,
-            vk::Extent3D { width: extent.width, height: extent.height, depth: 1 },
-        )?;
+        if mip_levels > 1 {
+            command.upload_texture_with_mipmaps(
+                device.graphics_queue(),
+                staging.handle(),
+                handle,
+                vk::Extent3D { width: extent.width, height: extent.height, depth: 1 },
+                mip_levels,
+            )?;
+        } else {
+            command.copy_buffer_to_image(
+                device.graphics_queue(),
+                staging.handle(),
+                handle,
+                vk::Extent3D { width: extent.width, height: extent.height, depth: 1 },
+            )?;
+        }
 
         let view_info = vk::ImageViewCreateInfo::default()
             .image(handle)
@@ -212,7 +260,7 @@ impl VulkanImage {
             .subresource_range(vk::ImageSubresourceRange {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
                 base_mip_level: 0,
-                level_count: 1,
+                level_count: mip_levels,
                 base_array_layer: 0,
                 layer_count: 1,
             });

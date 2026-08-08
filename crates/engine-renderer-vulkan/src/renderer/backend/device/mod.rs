@@ -15,7 +15,7 @@ use thiserror::Error;
 use self::selection::{DeviceCandidate, pick_physical};
 pub(super) use self::{logical::VulkanLogicalDevice, queues::QueueFamilyIndices};
 use crate::renderer::backend::{
-    call_error::VulkanCallError, instance::VulkanInstance, surface::VulkanSurface,
+    call_error::VulkanCallError, image, instance::VulkanInstance, surface::VulkanSurface,
 };
 
 const REQUIRED_EXTENSIONS: [&CStr; 1] = [
@@ -47,6 +47,7 @@ pub(super) struct VulkanDevice {
     compute_separate_from_graphics: bool,
     transfer_separate_from_graphics: bool,
     queue_families: QueueFamilyIndices,
+    supports_texture_mipmap_blit: bool,
 }
 
 impl VulkanDevice {
@@ -132,6 +133,20 @@ impl VulkanDevice {
         let transfer_queue =
             unsafe { logical.handle().get_device_queue(queue_families.transfer, 0) };
 
+        // SAFETY: `physical` was selected from `instance`.
+        let texture_format_properties = unsafe {
+            instance
+                .handle()
+                .get_physical_device_format_properties(physical, image::TEXTURE_FORMAT)
+        };
+
+        let supports_texture_mipmap_blit = texture_format_properties
+            .optimal_tiling_features
+            .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR)
+            && texture_format_properties
+                .optimal_tiling_features
+                .contains(vk::FormatFeatureFlags::BLIT_SRC | vk::FormatFeatureFlags::BLIT_DST);
+
         let device = Self {
             logical,
             physical,
@@ -142,6 +157,7 @@ impl VulkanDevice {
             compute_separate_from_graphics: queue_families.compute != queue_families.graphics,
             transfer_separate_from_graphics: queue_families.transfer != queue_families.graphics,
             queue_families: queue_families.clone(),
+            supports_texture_mipmap_blit,
         };
 
         #[cfg(debug_assertions)]
@@ -193,6 +209,17 @@ impl VulkanDevice {
 
     pub(super) fn graphics_queue(&self) -> vk::Queue {
         self.graphics_queue
+    }
+
+    pub(super) fn compute_queue(&self) -> vk::Queue {
+        self.compute_queue
+    }
+
+    /// Whether the device supports linear-filtered blits of
+    /// [`image::TEXTURE_FORMAT`], required to generate mipmaps by
+    /// repeatedly downsampling with `vkCmdBlitImage`.
+    pub(super) fn supports_texture_mipmap_blit(&self) -> bool {
+        self.supports_texture_mipmap_blit
     }
 
     pub(super) fn get_max_usable_sample_count(&self) -> vk::SampleCountFlags {

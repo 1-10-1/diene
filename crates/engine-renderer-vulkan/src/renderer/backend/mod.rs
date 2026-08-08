@@ -4,6 +4,8 @@ mod call_error;
 mod allocator;
 mod buffer;
 mod command;
+#[cfg(debug_assertions)]
+mod compute;
 mod depth;
 mod device;
 mod draw;
@@ -147,6 +149,11 @@ pub(super) enum VulkanBackendError {
     /// Vulkan shader compiler operation failed.
     #[error("shader compiler operation failed")]
     ShaderCompilation,
+
+    /// The compute pipeline self-check failed to build, dispatch, or
+    /// verify its output.
+    #[error("compute pipeline self-check failed")]
+    ComputeSelfCheck,
 
     /// Vulkan API call returned an error value.
     #[error(transparent)]
@@ -398,6 +405,30 @@ impl VulkanBackend {
             .with_sample_shading(sample_count != vk::SampleCountFlags::TYPE_1, 0.2)
             .build(&device, "gpu-driven-multidraw", &pipeline_layout)
             .change_context(VulkanBackendError::PipelineOperation)?;
+
+        // Verifies compute pipeline creation, dispatch, and
+        // compute-to-transfer synchronization end to end. This is a
+        // one-time development-time check, not a rendering feature, so
+        // it only runs in debug builds.
+        #[cfg(debug_assertions)]
+        {
+            let compiled_compute_demo_shader = shader_compiler
+                .compile(
+                    "compute_squares",
+                    [engine_shader::ShaderEntrypoint::new(
+                        "main",
+                        engine_shader::ShaderStage::Compute,
+                    )],
+                )
+                .change_context(VulkanBackendError::ShaderCompilation)?;
+
+            let vk_compute_demo_shader = shaders
+                .create_shader(&compiled_compute_demo_shader)
+                .change_context(VulkanBackendError::ShaderCompilation)?;
+
+            compute::run_self_check(&allocator, &command, &device, &vk_compute_demo_shader)
+                .change_context(VulkanBackendError::ComputeSelfCheck)?;
+        }
 
         let frame_sync = frame::VulkanFrameSync::new(device.logical().clone())
             .change_context(VulkanBackendError::FrameOperation)?;

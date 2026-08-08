@@ -31,9 +31,13 @@ pub(super) enum VulkanPipelineError {
     #[error("graphics pipeline builder is missing {0}")]
     IncompleteGraphicsPipeline(&'static str),
 
+    /// Required compute pipeline builder field was not provided.
+    #[error("compute pipeline builder is missing {0}")]
+    IncompleteComputePipeline(&'static str),
+
     /// Pipeline creation succeeded without returning a valid pipeline
     /// handle.
-    #[error("graphics pipeline creation did not return a pipeline handle")]
+    #[error("pipeline creation did not return a pipeline handle")]
     NoPipelineReturned,
 
     /// Pipeline name could not be used as a cache file stem.
@@ -698,6 +702,129 @@ impl VulkanGraphicsPipeline {
     /// Creates a builder for a Vulkan graphics pipeline.
     pub(super) fn builder<'a>() -> VulkanGraphicsPipelineBuilder<'a> {
         VulkanGraphicsPipelineBuilder::default()
+    }
+
+    /// Returns the underlying Vulkan pipeline handle.
+    pub(super) fn get(&self) -> vk::Pipeline {
+        self.handle
+    }
+}
+
+/// Builds a Vulkan compute pipeline from a single compute shader
+/// stage.
+#[derive(Clone, Debug, Default)]
+pub(super) struct VulkanComputePipelineBuilder<'a> {
+    shader: Option<&'a VulkanShader>,
+}
+
+impl<'a> VulkanComputePipelineBuilder<'a> {
+    /// Uses the provided shader module's single compute stage.
+    pub(super) fn with_shader(mut self, shader: &'a VulkanShader) -> Self {
+        self.shader = Some(shader);
+        self
+    }
+
+    /// Builds the configured Vulkan compute pipeline.
+    pub(super) fn build(
+        self,
+        device: &VulkanDevice,
+        name: impl Into<String>,
+        layout: &VulkanPipelineLayout,
+    ) -> core::result::Result<VulkanComputePipeline, VulkanPipelineError> {
+        let name = name.into();
+
+        if !is_valid_pipeline_name(&name) {
+            return Err(VulkanPipelineError::InvalidPipelineName { name });
+        }
+
+        let shader = self
+            .shader
+            .ok_or(VulkanPipelineError::IncompleteComputePipeline("compute shader"))?;
+
+        let stage = shader
+            .stage_infos()
+            .into_iter()
+            .next()
+            .ok_or(VulkanPipelineError::IncompleteComputePipeline("compute shader stage"))?;
+
+        let create_info = vk::ComputePipelineCreateInfo::default()
+            .stage(stage)
+            .layout(layout.get())
+            .base_pipeline_index(-1)
+            .base_pipeline_handle(vk::Pipeline::null());
+
+        let logical = device.logical().clone();
+
+        // SAFETY: `create_info` references only local state that lives
+        // through the call. The shader module and pipeline layout are
+        // live for the duration of creation.
+        let handle = match unsafe {
+            logical.handle().create_compute_pipelines(
+                vk::PipelineCache::null(),
+                &[create_info],
+                None,
+            )
+        } {
+            Ok(pipelines) => {
+                pipelines.into_iter().next().ok_or(VulkanPipelineError::NoPipelineReturned)?
+            }
+            Err((pipelines, result)) => {
+                for pipeline in pipelines.into_iter().filter(|pipeline| !pipeline.is_null()) {
+                    // SAFETY: Partial pipeline handles returned by this failed
+                    // creation call belong to `logical` and have no
+                    // other owner.
+                    unsafe {
+                        logical.handle().destroy_pipeline(pipeline, None);
+                    }
+                }
+
+                return Err(VulkanCallError::new("create compute pipeline", result).into());
+            }
+        };
+
+        let pipeline = VulkanComputePipeline { device: logical, handle, name };
+
+        #[cfg(debug_assertions)]
+        if let Ok(debug_name) = CString::new(format!("compute pipeline: {}", pipeline.name))
+            && let Err(result) = pipeline.device.set_name(debug_name.as_c_str(), pipeline.handle)
+        {
+            return Err(VulkanCallError::new("name compute pipeline", result).into());
+        }
+
+        Ok(pipeline)
+    }
+}
+
+/// Owns a Vulkan compute pipeline.
+pub(super) struct VulkanComputePipeline {
+    device: Arc<VulkanLogicalDevice>,
+    handle: vk::Pipeline,
+    name: String,
+}
+
+impl std::fmt::Debug for VulkanComputePipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VulkanComputePipeline")
+            .field("handle", &self.handle)
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for VulkanComputePipeline {
+    fn drop(&mut self) {
+        // SAFETY: `self.handle` was created through `self.device` and is
+        // destroyed exactly once.
+        unsafe {
+            self.device.handle().destroy_pipeline(self.handle, None);
+        }
+    }
+}
+
+impl VulkanComputePipeline {
+    /// Creates a builder for a Vulkan compute pipeline.
+    pub(super) fn builder<'a>() -> VulkanComputePipelineBuilder<'a> {
+        VulkanComputePipelineBuilder::default()
     }
 
     /// Returns the underlying Vulkan pipeline handle.

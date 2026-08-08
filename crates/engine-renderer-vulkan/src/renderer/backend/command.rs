@@ -27,6 +27,7 @@ pub(super) struct VulkanCommand {
     transfer_pool: ash::vk::CommandPool,
     compute_pool: ash::vk::CommandPool,
     graphics_command_buffer: ash::vk::CommandBuffer,
+    compute_command_buffer: ash::vk::CommandBuffer,
     render_command_buffers: [ash::vk::CommandBuffer; super::FRAMES_IN_FLIGHT],
     device: Arc<device::VulkanLogicalDevice>,
 }
@@ -63,6 +64,7 @@ impl VulkanCommand {
             transfer_pool: CommandPool::default(),
             compute_pool: CommandPool::default(),
             graphics_command_buffer: CommandBuffer::default(),
+            compute_command_buffer: CommandBuffer::default(),
             render_command_buffers: [CommandBuffer::default(); super::FRAMES_IN_FLIGHT],
             device,
         };
@@ -113,6 +115,28 @@ impl VulkanCommand {
         vk_try!(
             "name compute command pool",
             command.device.set_name(c"compute command pool", command.compute_pool),
+        );
+
+        // SAFETY: `device` is alive.
+        let mut compute_command_buffers = vk_try!("allocate compute command buffers", unsafe {
+            command.device.handle().allocate_command_buffers(
+                &vk::CommandBufferAllocateInfo::default()
+                    .command_pool(command.compute_pool)
+                    .level(vk::CommandBufferLevel::PRIMARY)
+                    .command_buffer_count(1),
+            )
+        });
+
+        command.compute_command_buffer = compute_command_buffers
+            .pop()
+            .ok_or(VulkanCommandError::NoCommandBufferReturned)?;
+
+        #[cfg(debug_assertions)]
+        vk_try!(
+            "name compute command buffer",
+            command
+                .device
+                .set_name(c"compute command buffer", command.compute_command_buffer),
         );
 
         // SAFETY: `device` is alive.
@@ -259,6 +283,7 @@ impl VulkanCommand {
             vk::AccessFlags2::NONE,
             vk::PipelineStageFlags2::TRANSFER,
             vk::AccessFlags2::TRANSFER_WRITE,
+            single_mip_subresource_range(0),
         );
 
         let regions = [vk::BufferImageCopy::default()
@@ -292,6 +317,7 @@ impl VulkanCommand {
             vk::AccessFlags2::TRANSFER_WRITE,
             vk::PipelineStageFlags2::FRAGMENT_SHADER,
             vk::AccessFlags2::SHADER_SAMPLED_READ,
+            single_mip_subresource_range(0),
         );
 
         // SAFETY: Recording was begun above and contains only upload
@@ -316,6 +342,306 @@ impl VulkanCommand {
 
         Ok(())
     }
+
+    /// Uploads `src` into mip level 0 of `dst`, then generates the
+    /// remaining `mip_levels - 1` levels by repeatedly downsampling
+    /// with linear-filtered `vkCmdBlitImage` calls (the tutorial's
+    /// "Generating Mipmaps" chapter). Every level ends in
+    /// `SHADER_READ_ONLY_OPTIMAL`.
+    pub(super) fn upload_texture_with_mipmaps(
+        &self,
+        queue: vk::Queue,
+        src: vk::Buffer,
+        dst: vk::Image,
+        extent: vk::Extent3D,
+        mip_levels: u32,
+    ) -> core::result::Result<(), VulkanCommandError> {
+        let command_buffer = self.graphics_command_buffer;
+        let device = self.device.handle();
+
+        // SAFETY: The command buffer was allocated from a pool created with
+        // RESET_COMMAND_BUFFER.
+        vk_try!("reset graphics command buffer for mipmapped image upload", unsafe {
+            device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+        });
+
+        let begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // SAFETY: `command_buffer` is reset and not pending execution.
+        vk_try!("begin graphics command buffer for mipmapped image upload", unsafe {
+            device.begin_command_buffer(command_buffer, &begin_info)
+        });
+
+        transition_image_layout(
+            device,
+            command_buffer,
+            dst,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::PipelineStageFlags2::NONE,
+            vk::AccessFlags2::NONE,
+            vk::PipelineStageFlags2::TRANSFER,
+            vk::AccessFlags2::TRANSFER_WRITE,
+            vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: mip_levels,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+        );
+
+        let regions = [vk::BufferImageCopy::default()
+            .image_subresource(vk::ImageSubresourceLayers {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .image_extent(extent)];
+
+        // SAFETY: Source buffer and destination image are live. Mip level 0
+        // is in TRANSFER_DST_OPTIMAL layout.
+        unsafe {
+            device.cmd_copy_buffer_to_image(
+                command_buffer,
+                src,
+                dst,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &regions,
+            );
+        }
+
+        let mut mip_width = i32::try_from(extent.width).unwrap_or(i32::MAX).max(1);
+        let mut mip_height = i32::try_from(extent.height).unwrap_or(i32::MAX).max(1);
+
+        for level in 1..mip_levels {
+            // The previous level was written as a blit destination (or, for
+            // level 1, as the initial buffer-to-image copy destination) and
+            // now becomes this blit's source.
+            transition_image_layout(
+                device,
+                command_buffer,
+                dst,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                vk::PipelineStageFlags2::TRANSFER,
+                vk::AccessFlags2::TRANSFER_WRITE,
+                vk::PipelineStageFlags2::TRANSFER,
+                vk::AccessFlags2::TRANSFER_READ,
+                single_mip_subresource_range(level - 1),
+            );
+
+            let next_width = (mip_width / 2).max(1);
+            let next_height = (mip_height / 2).max(1);
+
+            let blit = vk::ImageBlit::default()
+                .src_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: level - 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .src_offsets([
+                    vk::Offset3D::default(),
+                    vk::Offset3D { x: mip_width, y: mip_height, z: 1 },
+                ])
+                .dst_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: level,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .dst_offsets([
+                    vk::Offset3D::default(),
+                    vk::Offset3D { x: next_width, y: next_height, z: 1 },
+                ]);
+
+            let regions = [blit];
+
+            // SAFETY: `dst` is live; level `level - 1` is
+            // TRANSFER_SRC_OPTIMAL and level `level` is TRANSFER_DST_OPTIMAL
+            // (inherited from the upload-wide transition above).
+            unsafe {
+                device.cmd_blit_image(
+                    command_buffer,
+                    dst,
+                    vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                    dst,
+                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    &regions,
+                    vk::Filter::LINEAR,
+                );
+            }
+
+            transition_image_layout(
+                device,
+                command_buffer,
+                dst,
+                vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::PipelineStageFlags2::TRANSFER,
+                vk::AccessFlags2::TRANSFER_READ,
+                vk::PipelineStageFlags2::FRAGMENT_SHADER,
+                vk::AccessFlags2::SHADER_SAMPLED_READ,
+                single_mip_subresource_range(level - 1),
+            );
+
+            mip_width = next_width;
+            mip_height = next_height;
+        }
+
+        // The last level was only ever a blit destination and never became
+        // a blit source, so it still needs its own transition out of
+        // TRANSFER_DST_OPTIMAL.
+        transition_image_layout(
+            device,
+            command_buffer,
+            dst,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::PipelineStageFlags2::TRANSFER,
+            vk::AccessFlags2::TRANSFER_WRITE,
+            vk::PipelineStageFlags2::FRAGMENT_SHADER,
+            vk::AccessFlags2::SHADER_SAMPLED_READ,
+            single_mip_subresource_range(mip_levels - 1),
+        );
+
+        // SAFETY: Recording was begun above and all commands have been
+        // emitted.
+        vk_try!("end graphics command buffer for mipmapped image upload", unsafe {
+            device.end_command_buffer(command_buffer)
+        });
+
+        let command_buffers = [command_buffer];
+        let submit_infos = [vk::SubmitInfo::default().command_buffers(&command_buffers)];
+
+        // SAFETY: `queue` belongs to the same device as the command buffer.
+        // Waiting for queue idle makes this one-shot upload complete before
+        // staging resources are dropped.
+        unsafe {
+            vk_try!(
+                "submit mipmapped image upload",
+                device.queue_submit(queue, &submit_infos, vk::Fence::null()),
+            );
+            vk_try!("wait for mipmapped image upload", device.queue_wait_idle(queue));
+        }
+
+        Ok(())
+    }
+
+    /// Dispatches `pipeline` on the compute queue with
+    /// `push_constants` bound to `pipeline_layout`, then copies
+    /// `size` bytes from `src` to `dst` once the dispatch's
+    /// writes to `src` are visible (`vkCmdPipelineBarrier2` from
+    /// `COMPUTE_SHADER`/`SHADER_WRITE` to
+    /// `COPY`/`TRANSFER_READ`).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn dispatch_compute_and_readback(
+        &self,
+        queue: vk::Queue,
+        pipeline: vk::Pipeline,
+        pipeline_layout: vk::PipelineLayout,
+        push_constants: &[u8],
+        group_counts: [u32; 3],
+        src: vk::Buffer,
+        dst: vk::Buffer,
+        size: vk::DeviceSize,
+    ) -> core::result::Result<(), VulkanCommandError> {
+        let command_buffer = self.compute_command_buffer;
+        let device = self.device.handle();
+
+        // SAFETY: The command buffer was allocated from a pool created with
+        // RESET_COMMAND_BUFFER.
+        vk_try!("reset compute command buffer", unsafe {
+            device.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
+        });
+
+        let begin_info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // SAFETY: `command_buffer` is reset and not pending execution.
+        vk_try!("begin compute command buffer", unsafe {
+            device.begin_command_buffer(command_buffer, &begin_info)
+        });
+
+        // SAFETY: `command_buffer` is recording, and `pipeline` and
+        // `pipeline_layout` are live for the duration of this call.
+        unsafe {
+            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::COMPUTE, pipeline);
+
+            device.cmd_push_constants(
+                command_buffer,
+                pipeline_layout,
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                push_constants,
+            );
+
+            device.cmd_dispatch(command_buffer, group_counts[0], group_counts[1], group_counts[2]);
+        }
+
+        let barriers = [vk::BufferMemoryBarrier2::default()
+            .src_stage_mask(vk::PipelineStageFlags2::COMPUTE_SHADER)
+            .src_access_mask(vk::AccessFlags2::SHADER_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags2::COPY)
+            .dst_access_mask(vk::AccessFlags2::TRANSFER_READ)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .buffer(src)
+            .offset(0)
+            .size(size)];
+
+        let dependency_info = vk::DependencyInfo::default().buffer_memory_barriers(&barriers);
+
+        // SAFETY: `command_buffer` is recording, and `src` is a live buffer
+        // written by the dispatch above.
+        unsafe {
+            device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+        }
+
+        let regions = [vk::BufferCopy::default().size(size)];
+
+        // SAFETY: `src` and `dst` are live buffers, and the copy region
+        // stays within their caller-provided sizes.
+        unsafe {
+            device.cmd_copy_buffer(command_buffer, src, dst, &regions);
+        }
+
+        // SAFETY: Recording was begun above and all commands have been
+        // emitted.
+        vk_try!("end compute command buffer", unsafe {
+            device.end_command_buffer(command_buffer)
+        });
+
+        let command_buffers = [command_buffer];
+        let submit_infos = [vk::SubmitInfo::default().command_buffers(&command_buffers)];
+
+        // SAFETY: `queue` belongs to the same device and queue family as
+        // the compute command pool. Waiting for queue idle makes this
+        // one-shot dispatch complete before its buffers are read or
+        // dropped.
+        unsafe {
+            vk_try!(
+                "submit compute dispatch",
+                device.queue_submit(queue, &submit_infos, vk::Fence::null()),
+            );
+            vk_try!("wait for compute dispatch", device.queue_wait_idle(queue));
+        }
+
+        Ok(())
+    }
+}
+
+fn single_mip_subresource_range(mip_level: u32) -> vk::ImageSubresourceRange {
+    vk::ImageSubresourceRange {
+        aspect_mask: vk::ImageAspectFlags::COLOR,
+        base_mip_level: mip_level,
+        level_count: 1,
+        base_array_layer: 0,
+        layer_count: 1,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -329,6 +655,7 @@ fn transition_image_layout(
     src_access: vk::AccessFlags2,
     dst_stage: vk::PipelineStageFlags2,
     dst_access: vk::AccessFlags2,
+    subresource_range: vk::ImageSubresourceRange,
 ) {
     let barrier = vk::ImageMemoryBarrier2::default()
         .src_stage_mask(src_stage)
@@ -340,13 +667,7 @@ fn transition_image_layout(
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .image(image)
-        .subresource_range(vk::ImageSubresourceRange {
-            aspect_mask: vk::ImageAspectFlags::COLOR,
-            base_mip_level: 0,
-            level_count: 1,
-            base_array_layer: 0,
-            layer_count: 1,
-        });
+        .subresource_range(subresource_range);
 
     let barriers = [barrier];
     let dependency_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);

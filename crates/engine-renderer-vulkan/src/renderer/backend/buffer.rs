@@ -133,6 +133,38 @@ impl VulkanBuffer {
         self.handle
     }
 
+    pub(super) fn read_bytes(
+        &mut self,
+        out: &mut [u8],
+    ) -> core::result::Result<(), VulkanBufferError> {
+        let size = vk::DeviceSize::try_from(out.len())
+            .map_err(|_| VulkanBufferError::BufferTooLarge { bytes: out.len() })?;
+
+        if size > self.size {
+            return Err(VulkanBufferError::WriteTooLarge { bytes: size, capacity: self.size });
+        }
+
+        // SAFETY: The allocation was created with host-visible access.
+        // Invalidating before reading makes GPU writes that happened
+        // before this call visible to the host.
+        vk_try!("invalidate buffer memory", unsafe {
+            let mapped =
+                vk_try!("map buffer memory", self.allocator.map_memory(&mut self.allocation),);
+
+            let invalidate_result = self.allocator.invalidate_allocation(&self.allocation, 0, size);
+
+            // SAFETY: `out` and the mapped allocation do not overlap, and
+            // `size` has been checked against buffer capacity.
+            core::ptr::copy_nonoverlapping(mapped, out.as_mut_ptr(), out.len());
+
+            self.allocator.unmap_memory(&mut self.allocation);
+
+            invalidate_result
+        });
+
+        Ok(())
+    }
+
     pub(super) fn write_bytes(
         &mut self,
         bytes: &[u8],
