@@ -13,6 +13,7 @@ The pinned toolchain is nightly (`rust-toolchain.toml`); rustfmt relies on unsta
 - Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings` (alias `cargo cl`).
 - Test: `cargo test --workspace --all-targets --all-features` (alias `cargo t`); a single test: `cargo test -p <crate> <test_name> --all-features`.
 - `cargo nextest run --workspace --all-features` is also configured (`just nextest`), with a stricter CI profile via `cargo nextest run --profile ci`.
+- Note that testing is ignored in this project, so don't bother.
 - Docs: `cargo docx` (alias for `cargo doc --workspace --all-features --no-deps`) builds docs; the CI/`just doc` gate additionally sets `RUSTDOCFLAGS=-D warnings` (broken intra-doc links, missing docs on public items) — the alias alone won't reproduce that failure locally, set the env var or use `just doc`.
 - Supply-chain check: `cargo deny check` (licenses, advisories, banned wildcards).
 - Run the sandbox app: `cargo run -p sandbox` (alias `cargo r`).
@@ -21,8 +22,6 @@ The pinned toolchain is nightly (`rust-toolchain.toml`); rustfmt relies on unsta
 On `x86_64-unknown-linux-gnu`, `.cargo/config.toml` pins the `clang` + `mold` linker; both must be installed or builds fail. It also sets `RUST_LOG` (trace for `diene_*`/`sandbox` targets), and `common::logging::init()` writes to `logs/diene.log` relative to the current working directory.
 
 ## Architecture
-
-The workspace is layered so that renderer backends are swappable and orchestration code never hard-codes a graphics API:
 
 - **`engine-renderer-api`** is the contract crate: the `Renderer`/`RendererFactory`/`RenderWindow` traits and backend-neutral data types (`RenderScene`, `RenderObject`, `RenderCamera`, `MeshData`, `MaterialData`, `TextureData`, ...). It has no dependency on any concrete backend or on `engine-core`.
 - **`engine-renderer-vulkan`** implements those traits with `ash`/`vk-mem`. It's the only crate where `unsafe` is permitted, and every unsafe block/fn must carry a safety doc comment (`clippy::undocumented_unsafe_blocks` / `missing_safety_doc` are denied there).

@@ -31,3 +31,5 @@ Thumbs.db
 rustc-ice-*
 
 cache/
+
+/.claude/

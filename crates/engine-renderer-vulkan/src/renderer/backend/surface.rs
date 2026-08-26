@@ -148,9 +148,11 @@ fn choose_extent(
     window_dimensions.width = window_dimensions
         .width
         .clamp(capabilities.min_image_extent.width, capabilities.max_image_extent.width);
+
     window_dimensions.height = window_dimensions
         .height
         .clamp(capabilities.min_image_extent.height, capabilities.max_image_extent.height);
+
     window_dimensions
 }
 

@@ -12,7 +12,7 @@ docx = "doc --workspace --all-features --no-deps"
 jobs = 8
 
 [env]
-RUST_LOG = "warn,diene_common=trace,diene_engine_runtime=trace,diene_engine_core=trace,diene_engine_renderer_vulkan=trace,sandbox=trace"
+RUST_LOG = "warn,diene_common=debug,diene_engine_runtime=debug,diene_engine_core=debug,diene_engine_renderer_vulkan=debug,sandbox=debug"
 
 [target.x86_64-unknown-linux-gnu]
 linker = "clang"
