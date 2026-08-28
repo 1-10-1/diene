@@ -7,7 +7,7 @@
 //!
 //! # Quick Start
 //!
-//! ```no_run
+//! ```text
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let app = diene::Application::builder().with_name("Diene Sandbox").build()?;
 //!

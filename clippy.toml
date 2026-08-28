@@ -12,13 +12,6 @@ pass-by-value-size-limit = 256
 max-fn-params-bools = 2
 max-struct-bools = 3
 
-allow-unwrap-in-tests = true
-allow-expect-in-tests = true
-allow-panic-in-tests = true
-allow-print-in-tests = true
-allow-dbg-in-tests = false
-allow-indexing-slicing-in-tests = true
-
 avoid-breaking-exported-api = false
 warn-on-all-wildcard-imports = true
 

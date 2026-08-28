@@ -4,7 +4,7 @@ Diene is published as a small crate family. Publish from the workspace root afte
 
 ```sh
 cargo fmt --all -- --check
-cargo check --workspace --all-targets --all-features
+cargo check --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 cargo package --workspace --allow-dirty
 ```

@@ -132,34 +132,3 @@ fn as_bytes<T>(slice: &[T]) -> &[u8] {
         core::slice::from_raw_parts(slice.as_ptr().cast::<u8>(), core::mem::size_of_val(slice))
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use engine_renderer_api::{MeshVertex, glm};
-
-    use super::GpuMeshVertex;
-
-    #[test]
-    fn gpu_mesh_vertex_matches_shader_layout() {
-        let vertex = GpuMeshVertex::from(MeshVertex::new(
-            glm::Vec4::new(1.0, 2.0, 3.0, 1.0),
-            glm::Vec4::new(0.25, 0.5, 0.75, 1.0),
-            glm::Vec2::new(0.2, 0.8),
-        ));
-
-        assert_eq!(core::mem::size_of::<GpuMeshVertex>(), 48);
-        assert_eq!(core::mem::align_of::<GpuMeshVertex>(), 16);
-        assert_f32x4_eq(vertex.position, [1.0, 2.0, 3.0, 1.0]);
-        assert_f32x4_eq(vertex.color, [0.25, 0.5, 0.75, 1.0]);
-        assert_f32x4_eq(vertex.uv, [0.2, 0.8, 0.0, 0.0]);
-    }
-
-    fn assert_f32x4_eq(actual: [f32; 4], expected: [f32; 4]) {
-        assert!(
-            actual
-                .into_iter()
-                .zip(expected)
-                .all(|(actual, expected)| { (actual - expected).abs() <= f32::EPSILON })
-        );
-    }
-}

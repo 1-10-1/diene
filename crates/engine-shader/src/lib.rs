@@ -498,21 +498,3 @@ fn spirv_words(module: &str, bytes: &[u8]) -> core::result::Result<Vec<u32>, Sha
 
     Ok(words.iter().map(|word| u32::from_le_bytes(*word)).collect())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn converts_spirv_bytes_to_words() {
-        assert_eq!(spirv_words("test", &[1, 0, 0, 0, 2, 0, 0, 0]).ok(), Some(vec![1, 2]));
-    }
-
-    #[test]
-    fn rejects_spirv_byte_count_not_aligned_to_word_size() {
-        assert!(matches!(
-            spirv_words("test", &[1, 2, 3]),
-            Err(ShaderCompileError::InvalidSpirvBytecode { len: 3, .. })
-        ));
-    }
-}

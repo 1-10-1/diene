@@ -4,7 +4,6 @@ mod call_error;
 mod allocator;
 mod buffer;
 mod command;
-#[cfg(debug_assertions)]
 mod compute;
 mod depth;
 mod device;

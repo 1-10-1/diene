@@ -1,4 +1,6 @@
-//! Development sandbox for running and testing the engine.
+//! Development sandbox for running and exercising the engine.
+
+#![forbid(unsafe_code)]
 
 use std::fmt::Write;
 

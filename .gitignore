@@ -1,10 +1,8 @@
 /target/
 
-# Rust profiling/fuzzing noise
+# Rust profiling noise
 *.profraw
 *.profdata
-/coverage/
-/tarpaulin-report.html
 
 /logs/
 
