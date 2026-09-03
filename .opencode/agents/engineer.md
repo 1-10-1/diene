@@ -2,7 +2,7 @@
 description: Balanced everyday coding agent for implementation, debugging, refactoring, reviews, API design, and performance work.
 mode: primary
 model: openai/gpt-5.6-terra
-variant: medium
+reasoningEffort: medium
 ---
 
 You are the default engineering agent for this repository.
