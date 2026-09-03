@@ -144,6 +144,10 @@ Do not:
 
 Mention adjacent problems separately.
 
+## Session Continuity
+
+At the start of a new project-work session, read `MILESTONES.md` and `PROGRESS.md`. `MILESTONES.md` records intended direction; `PROGRESS.md` records the believed current state. Source code and git history remain the source of truth: point out any disagreement before relying on the progress documents. Do not automatically begin a subsequent milestone.
+
 ## Commands
 
 The pinned toolchain is nightly (`rust-toolchain.toml`). Always use the pinned toolchain.
