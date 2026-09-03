@@ -15,6 +15,7 @@ use winit::{
     window::WindowId,
 };
 
+mod input;
 mod windowing;
 
 use self::windowing::Window;
@@ -54,6 +55,7 @@ pub struct ApplicationHost {
     renderer: Option<BoxedErasedRenderer>,
     window: Option<Window>,
     error: Option<ApplicationHostError>,
+    input_state: input::InputState,
 
     _stopwatch: common::timer::Stopwatch,
 }
@@ -91,6 +93,7 @@ impl ApplicationHostBuilder {
             renderer: None,
             window: None,
             error: None,
+            input_state: input::InputState::default(),
             _stopwatch: timer,
         })
     }
@@ -237,6 +240,12 @@ impl ApplicationHandler for ApplicationHost {
             }
             WindowEvent::RedrawRequested => {
                 self.render_frame(event_loop);
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                self.input_state.handle_key_event(&event);
+            }
+            WindowEvent::Focused(gained) if !gained => {
+                self.input_state.clear_state();
             }
             _ => {}
         }
