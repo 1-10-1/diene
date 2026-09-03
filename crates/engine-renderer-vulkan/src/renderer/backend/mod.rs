@@ -189,7 +189,7 @@ pub(super) struct VulkanBackend {
     transform_table: Option<transform::TransformTable>,
     material_table: Option<material::MaterialTable>,
     texture_heap: texture::BindlessTextureHeap,
-    scene_buffer: scene::SceneBuffer,
+    scene_buffers: Vec<scene::SceneBuffer>,
     meshes: Vec<mesh::GpuMesh>,
     camera: RenderCamera,
     command: command::VulkanCommand,
@@ -281,9 +281,10 @@ impl VulkanBackend {
         }
 
         let camera = scene.camera();
-        let scene_buffer =
-            scene::SceneBuffer::new(&allocator, &device, surface_config.extent, camera)
-                .change_context(VulkanBackendError::SceneBufferOperation)?;
+        let scene_buffers = (0..FRAMES_IN_FLIGHT)
+            .map(|_| scene::SceneBuffer::new(&allocator, &device, surface_config.extent, camera))
+            .collect::<core::result::Result<Vec<_>, _>>()
+            .change_context(VulkanBackendError::SceneBufferOperation)?;
 
         let mut texture_heap = texture::BindlessTextureHeap::new(&allocator, &command, &device)
             .change_context(VulkanBackendError::TextureOperation)?;
@@ -441,7 +442,7 @@ impl VulkanBackend {
             transform_table,
             material_table,
             texture_heap,
-            scene_buffer,
+            scene_buffers,
             meshes,
             camera,
             command,
@@ -515,7 +516,7 @@ impl VulkanBackend {
             logical.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
         });
 
-        self.scene_buffer
+        self.scene_buffers[frame_index]
             .update(self.surface_config.extent, self.camera)
             .map_err(|_| VulkanBackendError::SceneBufferOperation)?;
 
@@ -797,7 +798,7 @@ impl VulkanBackend {
                 let push_constants = draw_list.push_constants(
                     material_table.device_address(),
                     transform_table.device_address(),
-                    self.scene_buffer.device_address(),
+                    self.scene_buffers[frame_index].device_address(),
                 );
 
                 logical.cmd_push_constants(

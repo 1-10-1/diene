@@ -230,6 +230,7 @@ Make sure to write all the citations as [<number>] initially, and at the end of 
 very paragraph/sentence (not later or at the end), list out every citation in a separate line.
 
 Never abbreviate later citations to a basename.
+Every numbered source definition MUST have at least one matching inline [N] citation. Never emit orphaned source definitions.
 
 Correct:
 
