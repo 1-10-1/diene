@@ -196,7 +196,6 @@ impl Error for RenderSceneError {}
 /// resources.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RenderScene {
-    camera: RenderCamera,
     meshes: Vec<MeshData>,
     materials: Vec<MaterialData>,
     objects: Vec<RenderObject>,
@@ -221,19 +220,7 @@ impl RenderScene {
 
         validate_objects(&objects, meshes.len(), materials.len())?;
 
-        Ok(Self { camera: RenderCamera::default(), meshes, materials, objects })
-    }
-
-    /// Sets the scene camera.
-    #[must_use]
-    pub const fn with_camera(mut self, camera: RenderCamera) -> Self {
-        self.camera = camera;
-        self
-    }
-
-    /// Returns the scene camera.
-    pub const fn camera(&self) -> RenderCamera {
-        self.camera
+        Ok(Self { meshes, materials, objects })
     }
 
     /// Returns scene mesh payloads.

@@ -1,4 +1,4 @@
-use ash::vk;
+use ash::vk::{self};
 use engine_renderer_api::{RenderCamera, glm};
 use thiserror::Error;
 use vk_mem::{AllocationCreateFlags, MemoryUsage};
@@ -25,7 +25,7 @@ struct SceneData {
 }
 
 impl SceneData {
-    fn from_camera(extent: vk::Extent2D, camera: RenderCamera) -> Self {
+    fn from_camera(extent: vk::Extent2D, camera: &RenderCamera) -> Self {
         let aspect = extent.width.max(1) as f32 / extent.height.max(1) as f32;
 
         let view = glm::look_at_rh(&camera.eye(), &camera.target(), &camera.up());
@@ -78,10 +78,8 @@ impl SceneBuffer {
     pub(super) fn new(
         allocator: &VulkanAllocator,
         device: &VulkanDevice,
-        extent: vk::Extent2D,
-        camera: RenderCamera,
     ) -> core::result::Result<Self, VulkanSceneError> {
-        let mut buffer = VulkanBuffer::new(
+        let buffer = VulkanBuffer::new(
             device.logical(),
             allocator.handle(),
             c"scene buffer",
@@ -90,8 +88,6 @@ impl SceneBuffer {
             MemoryUsage::AutoPreferHost,
             AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
         )?;
-
-        buffer.write_bytes(SceneData::from_camera(extent, camera).as_bytes())?;
 
         let device_address = buffer.device_address(device.logical());
 
@@ -102,17 +98,13 @@ impl SceneBuffer {
         Ok(Self { buffer, device_address })
     }
 
-    pub(super) fn update(
+    pub(super) fn write_and_get_address(
         &mut self,
         extent: vk::Extent2D,
-        camera: RenderCamera,
-    ) -> core::result::Result<(), VulkanSceneError> {
+        camera: &RenderCamera,
+    ) -> core::result::Result<vk::DeviceAddress, VulkanSceneError> {
         self.buffer.write_bytes(SceneData::from_camera(extent, camera).as_bytes())?;
 
-        Ok(())
-    }
-
-    pub(super) fn device_address(&self) -> vk::DeviceAddress {
-        self.device_address
+        Ok(self.device_address)
     }
 }

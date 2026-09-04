@@ -22,7 +22,8 @@ impl InputState {
         self.held.clear();
     }
 
-    pub(super) fn _is_held(&self, key: PhysicalKey) -> bool {
+    #[allow(dead_code)]
+    pub(super) fn is_held(&self, key: PhysicalKey) -> bool {
         self.held.contains(&key)
     }
 }

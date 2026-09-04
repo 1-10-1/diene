@@ -7,7 +7,7 @@ use engine_core::app::{
     ApplicationHost, ApplicationHostBuildError, ApplicationHostError, WindowError,
 };
 use engine_renderer_api::{
-    BoxedRenderer, RenderExtent, RenderScene, RenderWindow, Renderer, RendererError,
+    BoxedRenderer, RenderCamera, RenderExtent, RenderScene, RenderWindow, Renderer, RendererError,
     RendererFactory,
 };
 use engine_renderer_vulkan::VulkanRendererBuilder;
@@ -78,6 +78,7 @@ pub struct ApplicationBuilder {
     renderer_backend: RendererBackend,
     scene: RenderScene,
     vsync: bool,
+    camera: Option<RenderCamera>,
 }
 
 impl ApplicationBuilder {
@@ -109,6 +110,13 @@ impl ApplicationBuilder {
         self
     }
 
+    /// Sets the initial camera.
+    #[must_use]
+    pub fn with_camera(mut self, camera: RenderCamera) -> Self {
+        self.camera = Some(camera);
+        self
+    }
+
     /// Builds the application.
     pub fn build(self) -> Result<Application, ApplicationError> {
         debug!("building runtime application with backend {:?}", self.renderer_backend);
@@ -123,6 +131,10 @@ impl ApplicationBuilder {
 
         if let Some(name) = self.name {
             builder = builder.with_name(name);
+        }
+
+        if let Some(camera) = self.camera {
+            builder = builder.with_camera(camera);
         }
 
         Ok(Application { host: builder.build()? })
@@ -204,8 +216,8 @@ where
         self.inner.prepare_frame().change_context(RendererBackendError::Vulkan)
     }
 
-    fn render(&mut self) -> error_stack::Result<(), Self::Error> {
-        self.inner.render().change_context(RendererBackendError::Vulkan)
+    fn render(&mut self, camera: &RenderCamera) -> error_stack::Result<(), Self::Error> {
+        self.inner.render(camera).change_context(RendererBackendError::Vulkan)
     }
 
     fn resize(&mut self, extent: RenderExtent) -> error_stack::Result<(), Self::Error> {

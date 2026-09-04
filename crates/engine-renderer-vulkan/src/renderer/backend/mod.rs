@@ -191,7 +191,6 @@ pub(super) struct VulkanBackend {
     texture_heap: texture::BindlessTextureHeap,
     scene_buffers: Vec<scene::SceneBuffer>,
     meshes: Vec<mesh::GpuMesh>,
-    camera: RenderCamera,
     command: command::VulkanCommand,
     allocator: allocator::VulkanAllocator,
     surface_config: surface::SurfaceConfig,
@@ -280,9 +279,8 @@ impl VulkanBackend {
             );
         }
 
-        let camera = scene.camera();
         let scene_buffers = (0..FRAMES_IN_FLIGHT)
-            .map(|_| scene::SceneBuffer::new(&allocator, &device, surface_config.extent, camera))
+            .map(|_| scene::SceneBuffer::new(&allocator, &device))
             .collect::<core::result::Result<Vec<_>, _>>()
             .change_context(VulkanBackendError::SceneBufferOperation)?;
 
@@ -444,7 +442,6 @@ impl VulkanBackend {
             texture_heap,
             scene_buffers,
             meshes,
-            camera,
             command,
             allocator,
             surface_config,
@@ -463,7 +460,10 @@ impl VulkanBackend {
         Ok(())
     }
 
-    pub(super) fn render(&mut self) -> core::result::Result<(), VulkanBackendError> {
+    pub(super) fn render(
+        &mut self,
+        camera: &RenderCamera,
+    ) -> core::result::Result<(), VulkanBackendError> {
         if self.rendering_paused {
             return Ok(());
         }
@@ -516,11 +516,16 @@ impl VulkanBackend {
             logical.reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::empty())
         });
 
-        self.scene_buffers[frame_index]
-            .update(self.surface_config.extent, self.camera)
+        let scene_buffer_address = self.scene_buffers[frame_index]
+            .write_and_get_address(self.surface_config.extent, camera)
             .map_err(|_| VulkanBackendError::SceneBufferOperation)?;
 
-        self.record_render_commands(command_buffer, image_index, frame_index)?;
+        self.record_render_commands(
+            command_buffer,
+            image_index,
+            frame_index,
+            scene_buffer_address,
+        )?;
 
         // SAFETY: Reset immediately before submission so failures before this
         // point leave the fence signaled for the next frame.
@@ -654,6 +659,7 @@ impl VulkanBackend {
         command_buffer: vk::CommandBuffer,
         image_index: u32,
         frame_index: usize,
+        scene_buffer_address: vk::DeviceAddress,
     ) -> core::result::Result<(), VulkanBackendError> {
         let image = self
             .frame
@@ -798,7 +804,7 @@ impl VulkanBackend {
                 let push_constants = draw_list.push_constants(
                     material_table.device_address(),
                     transform_table.device_address(),
-                    self.scene_buffers[frame_index].device_address(),
+                    scene_buffer_address,
                 );
 
                 logical.cmd_push_constants(

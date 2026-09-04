@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use common::{logging::macros::*, timer::Stopwatch};
 use engine_renderer_api::{
-    BoxedRenderer, RenderExtent, RenderWindow, RendererError, RendererFactory,
+    BoxedRenderer, RenderCamera, RenderExtent, RenderWindow, RendererError, RendererFactory,
 };
 use error_stack::{Context, Report};
 use thiserror::Error;
@@ -44,6 +44,10 @@ pub enum ApplicationHostBuildError {
     /// Application name cannot be empty or whitespace-only.
     #[error("application name cannot be empty")]
     EmptyName,
+
+    /// Application must be configured with a valid initial camera.
+    #[error("application must be given an initial camera")]
+    NoInitialCamera,
 }
 
 /// Drives the native window, event loop, and renderer for an
@@ -56,6 +60,7 @@ pub struct ApplicationHost {
     window: Option<Window>,
     error: Option<ApplicationHostError>,
     input_state: input::InputState,
+    camera: RenderCamera,
 
     _stopwatch: common::timer::Stopwatch,
 }
@@ -64,6 +69,7 @@ pub struct ApplicationHost {
 #[derive(Debug)]
 pub struct ApplicationHostBuilder {
     name: Option<String>,
+    camera: Option<RenderCamera>,
     renderer_factory: BoxedErasedRendererFactory,
 }
 
@@ -75,6 +81,13 @@ impl ApplicationHostBuilder {
         self
     }
 
+    /// Sets the initial camera.
+    #[must_use]
+    pub fn with_camera(mut self, camera: RenderCamera) -> Self {
+        self.camera = Some(camera);
+        self
+    }
+
     /// Builds the application host.
     pub fn build(self) -> Result<ApplicationHost, ApplicationHostError> {
         let name = self.name.unwrap_or_else(|| "Untitled Application".to_owned());
@@ -82,6 +95,10 @@ impl ApplicationHostBuilder {
         if name.trim().is_empty() {
             return Err(ApplicationHostBuildError::EmptyName.into());
         }
+
+        let Some(camera) = self.camera else {
+            return Err(ApplicationHostBuildError::NoInitialCamera.into());
+        };
 
         debug!("[{}] building application host", name);
 
@@ -93,6 +110,7 @@ impl ApplicationHostBuilder {
             renderer: None,
             window: None,
             error: None,
+            camera,
             input_state: input::InputState::default(),
             _stopwatch: timer,
         })
@@ -105,6 +123,7 @@ impl ApplicationHost {
         ApplicationHostBuilder {
             name: None,
             renderer_factory: Box::new(RendererFactoryAdapter { inner: renderer_factory }),
+            camera: None,
         }
     }
 
@@ -142,7 +161,7 @@ impl ApplicationHost {
             return;
         };
 
-        if let Err(error) = renderer.prepare_frame().and_then(|()| renderer.render()) {
+        if let Err(error) = renderer.prepare_frame().and_then(|()| renderer.render(&self.camera)) {
             self.fail(event_loop, ApplicationHostError::Renderer(error));
             return;
         }
@@ -258,7 +277,7 @@ type BoxedErasedRendererFactory = Box<dyn ErasedRendererFactory>;
 trait ErasedRenderer: std::fmt::Debug {
     fn prepare_frame(&mut self) -> Result<(), RendererError>;
 
-    fn render(&mut self) -> Result<(), RendererError>;
+    fn render(&mut self, camera: &RenderCamera) -> Result<(), RendererError>;
 
     fn resize(&mut self, extent: RenderExtent) -> Result<(), RendererError>;
 }
@@ -288,8 +307,8 @@ where
         self.inner.prepare_frame().map_err(erase_renderer_error)
     }
 
-    fn render(&mut self) -> Result<(), RendererError> {
-        self.inner.render().map_err(erase_renderer_error)
+    fn render(&mut self, camera: &RenderCamera) -> Result<(), RendererError> {
+        self.inner.render(camera).map_err(erase_renderer_error)
     }
 
     fn resize(&mut self, extent: RenderExtent) -> Result<(), RendererError> {

@@ -243,3 +243,33 @@ Incorrect:
 Lorem ipsum dolor sit amet, consectetur adipiscing elit [1]. Fusce diam nisi, porta [2] sit amet scelerisque quis, maximus in magna.
 [1]: Cargo.toml:30
 [2]: mod.rs:518
+
+## Interactive mentorship
+
+Do not optimize for completing an entire task uninterrupted.
+
+Before proceeding whenever:
+- multiple reasonable designs exist,
+- an architectural choice is required,
+- the next step introduces an important new concept,
+- the user's intended behavior is ambiguous,
+- or choosing for the user would remove a useful learning opportunity,
+
+stop and ask the user.
+
+Prefer short questions such as:
+
+"Before we continue, two decisions:"
+1. ...
+2. ...
+
+Explain the relevant tradeoffs when necessary, then wait for the user's
+answer before continuing.
+
+During implementation, continue doing this whenever new meaningful
+decisions arise. Do not assume that clarification is only appropriate
+at the beginning of a task.
+
+For trivial implementation details with an obvious conventional answer,
+choose it yourself and continue.
+

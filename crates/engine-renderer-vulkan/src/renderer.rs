@@ -1,7 +1,7 @@
 mod backend;
 
 use engine_renderer_api::{
-    BoxedRenderer, RenderExtent, RenderScene, RenderWindow, Renderer, RendererFactory,
+    BoxedRenderer, RenderCamera, RenderExtent, RenderScene, RenderWindow, Renderer, RendererFactory,
 };
 use error_stack::{Report, ResultExt};
 use thiserror::Error;
@@ -105,8 +105,8 @@ impl Renderer for VulkanRenderer {
         self.backend.prepare_frame().change_context(VulkanRendererError::Backend)
     }
 
-    fn render(&mut self) -> error_stack::Result<(), Self::Error> {
-        self.backend.render().change_context(VulkanRendererError::Backend)
+    fn render(&mut self, camera: &RenderCamera) -> error_stack::Result<(), Self::Error> {
+        self.backend.render(camera).change_context(VulkanRendererError::Backend)
     }
 
     fn resize(&mut self, extent: RenderExtent) -> error_stack::Result<(), Self::Error> {

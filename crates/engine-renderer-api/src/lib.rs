@@ -54,7 +54,7 @@ pub trait Renderer: Debug {
     fn prepare_frame(&mut self) -> error_stack::Result<(), Self::Error>;
 
     /// Renders one frame.
-    fn render(&mut self) -> error_stack::Result<(), Self::Error>;
+    fn render(&mut self, camera: &scene::RenderCamera) -> error_stack::Result<(), Self::Error>;
 
     /// Resizes renderer-owned swapchain or framebuffer resources.
     fn resize(&mut self, extent: RenderExtent) -> error_stack::Result<(), Self::Error>;

@@ -2,26 +2,25 @@
 
 ## Current milestone
 
-Milestone 1 — interactive camera. The supporting keyboard held-state layer is staged; camera movement is not implemented.
+Milestone 1 — interactive camera. The supporting keyboard held-state layer is committed; camera movement is not implemented.
 
 ## Current objective
 
-Review and commit the staged keyboard held-state layer without beginning camera integration.
+Choose the smallest camera behavior that will consume the committed keyboard held-state layer, without beginning later milestones.
 
 ## Confirmed current state
 
-- The application host now owns private keyboard held-state, forwards main-window keyboard events to it, and clears held keys when focus is lost (staged, not committed).
+- The application host owns private keyboard held-state, forwards main-window keyboard events to it, and clears held keys when focus is lost (committed in `58031ba`).
 - The renderer scene-buffer synchronization hazard was fixed in commit `cefbd55` by using one scene buffer per frame in flight.
-- `cargo clippy -p diene-engine-core -- -D warnings` passed for the staged input work.
+- `cargo clippy -p diene-engine-core -- -D warnings` passed for the input work.
 
 ## Last completed work
 
 - Fixed the renderer host-write/GPU-read scene-buffer race (`cefbd55`).
-- Added and reviewed the staged minimal keyboard held-state layer.
+- Added, reviewed, and committed the minimal keyboard held-state layer (`58031ba`).
 
 ## Immediate next questions
 
-- Should the staged input layer be committed as its own incremental change?
 - When ready, what is the smallest camera behavior to consume the held-key state?
 
 ## Known blockers/debt

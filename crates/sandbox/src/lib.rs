@@ -13,7 +13,18 @@ pub fn run() -> anyhow::Result<()> {
 
     let app_name = "diene sandbox";
 
-    let app = Application::builder().with_name(app_name).with_scene(demo_scene()?).build()?;
+    let app = Application::builder()
+        .with_name(app_name)
+        .with_scene(demo_scene()?)
+        .with_camera(RenderCamera::new(
+            glm::Vec3::new(0.0, 0.0, 3.2),
+            glm::Vec3::zeros(),
+            glm::Vec3::y(),
+            45.0_f32.to_radians(),
+            0.1,
+            100.0,
+        ))
+        .build()?;
 
     app.run()?;
 
@@ -166,15 +177,5 @@ fn demo_scene() -> anyhow::Result<RenderScene> {
             .with_albedo_texture(TextureData::from_file("assets/textures/texture.jpg")?)
             .with_label("blue quad")],
         [RenderObject::new(0, 0, RenderTransform::new(model))],
-    )
-    .map(|scene| {
-        scene.with_camera(RenderCamera::new(
-            glm::Vec3::new(0.0, 0.0, 3.2),
-            glm::Vec3::zeros(),
-            glm::Vec3::y(),
-            45.0_f32.to_radians(),
-            0.1,
-            100.0,
-        ))
-    })?)
+    )?)
 }
