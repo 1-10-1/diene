@@ -148,6 +148,8 @@ Mention adjacent problems separately.
 
 At the start of a new project-work session, read `MILESTONES.md` and `PROGRESS.md`. `MILESTONES.md` records intended direction; `PROGRESS.md` records the believed current state. Source code and git history remain the source of truth: point out any disagreement before relying on the progress documents. Do not automatically begin a subsequent milestone.
 
+Keep the milestone roadmap deliberately short: plan only the current milestone and, when requested, the next one or two. Propose narrow, observable player-facing capabilities with concrete exit criteria, rather than broad systems or distant features. Defer major or expansive work—such as infinite worlds, chunk streaming, terrain generation, physics, persistence, entities, or an ECS—until evidence from completed milestones makes it the next useful decision.
+
 ## Commands
 
 The pinned toolchain is nightly (`rust-toolchain.toml`). Always use the pinned toolchain.
@@ -272,4 +274,3 @@ at the beginning of a task.
 
 For trivial implementation details with an obvious conventional answer,
 choose it yourself and continue.
-
