@@ -2,31 +2,33 @@
 
 ## Current milestone
 
-Milestone 1 — interactive camera. The supporting keyboard held-state layer is committed; camera movement is not implemented.
+Milestone 1 — interactive camera. Camera render plumbing and keyboard held-state are committed; camera movement is not implemented.
 
 ## Current objective
 
-Choose the smallest camera behavior that will consume the committed keyboard held-state layer, without beginning later milestones.
+Select the next bounded camera-movement objective; do not begin later milestones.
 
 ## Confirmed current state
 
-- The application host owns private keyboard held-state, forwards main-window keyboard events to it, and clears held keys when focus is lost (committed in `58031ba`).
-- The renderer scene-buffer synchronization hazard was fixed in commit `cefbd55` by using one scene buffer per frame in flight.
-- `cargo clippy -p diene-engine-core -- -D warnings` passed for the input work.
+- The application host owns private keyboard held-state, forwards main-window keyboard events to it, and clears held keys when focus is lost (`58031ba`).
+- `RenderScene` contains static scene data; the application host owns the required main camera and supplies it to the renderer each frame (`8493d14`).
+- The Vulkan backend writes that camera to the current frame's scene buffer before passing its address to draw recording (`8493d14`).
+- `cargo check --workspace --all-features` passes.
 
 ## Last completed work
 
 - Fixed the renderer host-write/GPU-read scene-buffer race (`cefbd55`).
-- Added, reviewed, and committed the minimal keyboard held-state layer (`58031ba`).
+- Added and committed the minimal keyboard held-state layer (`58031ba`).
+- Wired the host-owned main camera through the renderer API and Vulkan backend (`8493d14`).
 
 ## Immediate next questions
 
-- When ready, what is the smallest camera behavior to consume the held-key state?
+- What is the smallest movement update that should consume the held-key state?
 
 ## Known blockers/debt
 
-- `InputState::_is_held` is intentionally unused until camera movement consumes it; decide whether to defer it or rename it when adding that consumer.
+- `InputState::is_held` is intentionally unused and temporarily allowed until camera movement consumes it.
 
 ## Last reviewed commit
 
-`cefbd55` — `fix(renderer) sync hazard`
+`8493d14` — `wired camera through render()`
